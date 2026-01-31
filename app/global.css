@@ -1,0 +1,59 @@
+/* global.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom base styles for the app */
+@layer base {
+  :root {
+    /* Light theme CSS variables */
+    --surface: #ffffff;
+    --surface-soft: #f8fafc;
+    --surface-muted: #f1f5f9;
+    
+    --text: #0f172a;
+    --text-soft: #475569;
+    --text-muted: #64748b;
+    
+    --brand: #0ea5e9;
+    --brand-soft: #e0f2fe;
+    
+    --success: #22c55e;
+    --success-soft: #dcfce7;
+    
+    --warning: #f59e0b;
+    --warning-soft: #fef3c7;
+    
+    --error: #ef4444;
+    --error-soft: #fee2e2;
+    
+    --border: #e2e8f0;
+    --border-strong: #cbd5e1;
+  }
+
+  .dark {
+    /* Dark theme CSS variables */
+    --surface: #0f172a;
+    --surface-soft: #1e293b;
+    --surface-muted: #334155;
+    
+    --text: #f1f5f9;
+    --text-soft: #cbd5e1;
+    --text-muted: #94a3b8;
+    
+    --brand: #38bdf8;
+    --brand-soft: #1e3a5c;
+    
+    --success: #4ade80;
+    --success-soft: #1a4532;
+    
+    --warning: #fbbf24;
+    --warning-soft: #453209;
+    
+    --error: #f87171;
+    --error-soft: #4c1d1d;
+    
+    --border: #475569;
+    --border-strong: #64748b;
+  }
+}
