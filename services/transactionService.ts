@@ -3,7 +3,7 @@ import database from '@/database';
 import { Payment } from '@/database/models/Payment';
 import { AccountTransaction } from '@/database/models/AccountTransaction';
 import { Q } from '@nozbe/watermelondb';
-import { v4 as uuidv4 } from 'uuid';
+import uuid from 'react-native-uuid'
 import Transaction from '@/database/models/Transaction';
 import { CashAccount } from '@/database/models/CashAccount';
 
@@ -27,6 +27,7 @@ export type TransactionData = {
   recordedBy: string;
   notes?: string;
   isBusinessExpense?: boolean;
+  transactionNumber?: string;
 };
 
 export type PaymentInput = {
@@ -57,7 +58,7 @@ export async function createTransactionWithPayments(
     const transaction = await transactions.create(t => {
       t.shopId = txnData.shopId;
       t.transactionType = txnData.transactionType;
-      t.transactionNumber = `TXN-${Date.now()}-${uuidv4().slice(0, 6).toUpperCase()}`;
+      t.transactionNumber = `TXN-${Date.now()}-${uuid.v4().slice(0, 6).toUpperCase()}`;
       t.contactId = txnData.contactId;
       t.expenseCategoryId = txnData.expenseCategoryId;
       t.subtotal = txnData.subtotal;

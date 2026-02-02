@@ -123,7 +123,7 @@ export async function loginUserLocal(
 
     // Compare normalized phone numbers
     const user = allUsers.find(
-      u => normalizePhone(u.phone) === normalizedPhone
+      u => normalizePhone(u?.phone) === normalizedPhone
     )
 
     if (!user) {

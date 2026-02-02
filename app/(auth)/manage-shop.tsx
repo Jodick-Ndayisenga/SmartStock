@@ -15,7 +15,7 @@ export default function ShopsScreen() {
   return (
     <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
       <PremiumHeader 
-        title={user.displayName ? user.displayName : user.email || t('manageShop.title')}
+        title={user?.displayName ? user.displayName : user?.email || t('manageShop.title')}
         showBackButton={true}
       />
       <ShopManager />

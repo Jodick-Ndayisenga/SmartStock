@@ -531,11 +531,15 @@ export default function ShopManager() {
             </Badge>
             
             <Button
-              variant={currentShop?.id === shop.id ? "default" : "outline"}
+              onPress={() => router.push({
+                pathname: '/(auth)/cash-account',
+                params: { shopId: shop.id }
+              })}
+              variant="default"
               size="sm"
-              onPress={() => handleSwitchShop(shop)}
+              icon='add'
             >
-              {currentShop?.id === shop.id ? 'Active' : 'Switch'}
+              add account 
             </Button>
           </View>
         </View>
@@ -579,7 +583,7 @@ export default function ShopManager() {
               icon="business-outline"
               className="flex-1"
             >
-              Create Shop
+              Create New Shop
             </Button>
             
             <Button

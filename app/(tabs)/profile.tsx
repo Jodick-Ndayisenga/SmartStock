@@ -377,10 +377,12 @@ export default function ProfileScreen() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onPress={() => router.push('/(auth)/manage-shop')}
+                    // make  this router dynamic 
+                    onPress={() => {currentShop ? router.push('/(auth)/manage-shop') : router.push('/(auth)/create-shop')}}
+                    //onPress={() => router.push('/(auth)/manage-shop')}
                     icon="business-outline"
                   >
-                    {currentShop ? 'Switch Shop' : 'Create Shop'}
+                    {currentShop ? 'Manage Shops' : 'Create Shop'}
                   </Button>
                   <Button
                     variant="outline"
@@ -572,13 +574,13 @@ export default function ProfileScreen() {
               Save Settings
             </Button>
 
-            <Button
+            {/* <Button
               variant="outline"
               onPress={() => router.push('/(auth)/create-shop')}
               icon="business-outline"
             >
               {currentShop ? 'Manage Shops' : 'Create First Shop'}
-            </Button>
+            </Button> */}
 
             <Button
               variant="destructive"

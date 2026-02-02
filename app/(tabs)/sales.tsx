@@ -1,4 +1,4 @@
-// app/(tabs)/record-sale.tsx
+// app/(tabs)/sales.tsx
 import database from '@/database';
 import { Ionicons } from '@expo/vector-icons';
 import { Q } from '@nozbe/watermelondb';
@@ -13,8 +13,9 @@ import {
   Platform,
   ScrollView,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker'; // 👈 ADD THIS
 
 // Components
 import PremiumHeader from '@/components/layout/PremiumHeader';
@@ -26,14 +27,18 @@ import { Loading } from '@/components/ui/Loading';
 import { StockStatusBadge } from '@/components/ui/StockStatusBadge';
 import { ThemedText } from '@/components/ui/ThemedText';
 
-// Hooks
-import { useAuth } from '@/context/AuthContext';
-
 // Models
+import { Contact } from '@/database/models/Contact';
 import { Product } from '@/database/models/Product';
 import { StockMovement } from '@/database/models/StockMovement';
 
-//const { width: SCREEN_WIDTH } = Dimensions.get('window');
+// Services
+import { createTransactionWithPayments, TransactionData } from '@/services/transactionService';
+import { getDefaultCashAccount } from '@/services/cashAccountService';
+import { StockService } from '@/services/stockServices';
+
+// Hooks
+import { useAuth } from '@/context/AuthContext';
 
 interface CartItem {
   id: string;
@@ -59,9 +64,10 @@ export default function RecordSaleScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { t } = useTranslation();
-  const { currentShop , user} = useAuth();
+  const { currentShop, user, tempSelectedContact, setTempSelectedContact } = useAuth();
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
+  const [customers, setCustomers] = useState<Contact[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -70,7 +76,21 @@ export default function RecordSaleScreen() {
   const [quickAmounts, setQuickAmounts] = useState<QuickAmount[]>([]);
   const [cartAnimation] = useState(new Animated.Value(0));
 
+  // 💳 Payment & Credit State
+  const [paymentMode, setPaymentMode] = useState<'cash' | 'credit'>('cash');
+  const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
+  const [dueDate, setDueDate] = useState<number | null>(null); // Unix timestamp
+  const [showDatePicker, setShowDatePicker] = useState(false); // 👈 NEW
+
   const productIdFromParams = params.productId as string;
+
+  // Listen for contact selection
+  useEffect(() => {
+    if (tempSelectedContact) {
+      setSelectedCustomer(tempSelectedContact);
+      setTempSelectedContact(null);
+    }
+  }, [tempSelectedContact]);
 
   useEffect(() => {
     loadData();
@@ -81,7 +101,7 @@ export default function RecordSaleScreen() {
       const product = products.find(p => p.id === productIdFromParams);
       if (product) {
         setSelectedProduct(product);
-        setSelectedUnit(product.sellingUnit);
+        setSelectedUnit(product.sellingUnit || product.baseUnit);
         generateQuickAmounts(product);
       }
     }
@@ -90,20 +110,24 @@ export default function RecordSaleScreen() {
   const loadData = async () => {
     try {
       setLoading(true);
-      
-
       if (currentShop) {
-        const productsData = await database.get<Product>('products')
-          .query(
-            Q.where('shop_id', currentShop.id),
-            Q.where('is_active', true)
-          )
-          .fetch();
+        const [productsData, contactsData] = await Promise.all([
+          database.get<Product>('products')
+            .query(Q.where('shop_id', currentShop.id), Q.where('is_active', true))
+            .fetch(),
+          database.get<Contact>('contacts')
+            .query(
+              Q.where('shop_id', currentShop.id),
+              Q.or(Q.where('role', 'customer'), Q.where('role', 'client'))
+            )
+            .fetch(),
+        ]);
         setProducts(productsData);
+        setCustomers(contactsData);
       }
     } catch (error) {
-      console.error('Error loading data:', error);
-      Alert.alert('Error', 'Failed to load products');
+      console.error('Error loading ', error);
+      Alert.alert('Error', 'Failed to load products or customers');
     } finally {
       setLoading(false);
     }
@@ -111,7 +135,7 @@ export default function RecordSaleScreen() {
 
   const generateQuickAmounts = (product: Product) => {
     const amounts: QuickAmount[] = [];
-    
+
     switch (product.unitType) {
       case 'weight':
         amounts.push(
@@ -142,7 +166,7 @@ export default function RecordSaleScreen() {
         );
         break;
     }
-    
+
     setQuickAmounts(amounts);
   };
 
@@ -150,7 +174,7 @@ export default function RecordSaleScreen() {
     const movements = await database.get<StockMovement>('stock_movements')
       .query(Q.where('product_id', productId))
       .fetch();
-    
+
     let stock = 0;
     movements.forEach(movement => {
       if (movement.movementType === 'IN') {
@@ -159,7 +183,7 @@ export default function RecordSaleScreen() {
         stock -= movement.quantity;
       }
     });
-    
+
     return stock;
   };
 
@@ -167,8 +191,7 @@ export default function RecordSaleScreen() {
     if (unit === product.baseUnit) {
       return qty * product.sellingPricePerBase;
     }
-    
-    // Convert to base unit for calculation
+
     const baseQuantity = product.convertToBaseUnit(qty, unit);
     return baseQuantity * product.sellingPricePerBase;
   };
@@ -184,7 +207,7 @@ export default function RecordSaleScreen() {
 
     const currentStock = await getProductStock(selectedProduct.id);
     const quantityInBaseUnit = selectedProduct.convertToBaseUnit(qty, selectedUnit);
-    
+
     if (quantityInBaseUnit > currentStock) {
       Alert.alert('Error', `Only ${currentStock} ${selectedProduct.baseUnit} available in stock`);
       return;
@@ -206,8 +229,7 @@ export default function RecordSaleScreen() {
     };
 
     setCart(prev => [...prev, cartItem]);
-    
-    // Animate cart addition
+
     Animated.sequence([
       Animated.timing(cartAnimation, {
         toValue: 1,
@@ -241,35 +263,44 @@ export default function RecordSaleScreen() {
       return;
     }
 
-    setCart(prev => prev.map(item => {
-      if (item.id === itemId) {
-        const totalPrice = calculatePrice(
-          products.find(p => p.id === item.productId)!,
-          newQuantity,
-          item.unit
-        );
-        return { ...item, quantity: newQuantity, totalPrice };
-      }
-      return item;
-    }));
+    setCart(prev =>
+      prev.map(item => {
+        if (item.id === itemId) {
+          const totalPrice = calculatePrice(
+            products.find(p => p.id === item.productId)!,
+            newQuantity,
+            item.unit
+          );
+          return { ...item, quantity: newQuantity, totalPrice };
+        }
+        return item;
+      })
+    );
   };
 
   const quickAddToCart = async (product: Product, quickAmount: QuickAmount) => {
     const currentStock = await getProductStock(product.id);
-    const quantityInBaseUnit = product.convertToBaseUnit(quickAmount.value, quickAmount.unit || product.sellingUnit);
-    
+    const quantityInBaseUnit = product.convertToBaseUnit(
+      quickAmount.value,
+      quickAmount.unit || product.sellingUnit || product.baseUnit
+    );
+
     if (quantityInBaseUnit > currentStock) {
       Alert.alert('Error', `Only ${currentStock} ${product.baseUnit} available in stock`);
       return;
     }
 
-    const totalPrice = calculatePrice(product, quickAmount.value, quickAmount.unit || product.sellingUnit);
+    const totalPrice = calculatePrice(
+      product,
+      quickAmount.value,
+      quickAmount.unit || product.sellingUnit || product.baseUnit
+    );
     const cartItem: CartItem = {
       id: `${product.id}-${Date.now()}`,
       productId: product.id,
       productName: product.name,
       quantity: quickAmount.value,
-      unit: quickAmount.unit || product.sellingUnit,
+      unit: quickAmount.unit || product.sellingUnit || product.baseUnit,
       pricePerUnit: product.sellingPricePerBase,
       totalPrice,
       currentStock: currentStock - quantityInBaseUnit,
@@ -279,7 +310,7 @@ export default function RecordSaleScreen() {
     };
 
     setCart(prev => [...prev, cartItem]);
-    
+
     Animated.sequence([
       Animated.timing(cartAnimation, {
         toValue: 1,
@@ -298,58 +329,83 @@ export default function RecordSaleScreen() {
   const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
 
   const processSale = async () => {
-    if (!currentShop || cart.length === 0) return;
+    if (!currentShop || cart.length === 0 || !user) return;
+
+    if (paymentMode === 'credit' && !selectedCustomer) {
+      Alert.alert('Missing Customer', 'Please select a customer for credit sale.');
+      return;
+    }
 
     try {
-      await database.write(async () => {
-        for (const item of cart) {
-          const product = products.find(p => p.id === item.productId);
-          if (!product) continue;
+      setLoading(true);
+      const txnData: TransactionData = {
+        shopId: currentShop.id,
+        transactionType: 'sale',
+        contactId: paymentMode === 'credit' ? selectedCustomer : undefined,
+        subtotal: totalAmount,
+        taxAmount: 0,
+        discountAmount: 0,
+        totalAmount,
+        amountPaid: paymentMode === 'cash' ? totalAmount : 0,
+        paymentStatus: paymentMode === 'cash' ? 'paid' : 'due',
+        transactionDate: Date.now(),
+        dueDate: dueDate || undefined,
+        recordedBy: user.id,
+        notes: '',
+        isBusinessExpense: false,
+      };
+      console.log(currentShop.id, txnData);
 
-        // Convert to base units for storage & stock update
-          const quantityInBaseUnit = product.convertToBaseUnit(item.quantity, item.unit);
+      const paymentInputs = [];
+      if (paymentMode === 'cash') {
+        const defaultAccount = await getDefaultCashAccount(currentShop.id);
+        if (!defaultAccount) throw new Error('No default cash account found');
+        paymentInputs.push({
+          cashAccountId: defaultAccount.id,
+          paymentMethodId: 'cash',
+          amount: totalAmount,
+          notes: 'Cash received at time of sale',
+        });
+      }
 
-          // 1. Create SALE movement
-          await database.get<StockMovement>('stock_movements').create(movement => {
+      await createTransactionWithPayments(txnData, paymentInputs);
 
-            movement.productId = item.productId;
-              movement.shopId = currentShop.id;
-              movement.quantity = quantityInBaseUnit;
-              movement.movementType = 'SALE';
-              movement.notes = 'Stock added via product edit';
-              movement.recordedBy = user?.id;
-              movement.timestamp = Date.now();
-          });
+      // Record stock movements
+      for (const item of cart) {
+        const product = products.find(p => p.id === item.productId)!;
+        await StockService.recordSale({
+          productId: item.productId,
+          shopId: currentShop.id,
+          quantityInSellingUnits: item.quantity,
+          customerId: paymentMode === 'credit' ? selectedCustomer : undefined,
+          recordedBy: user.id,
+          notes: `Sale ${txnData.transactionNumber}`,
+        });
+      }
 
-          // 2. ✅ Atomically update product.stockQuantity
-          await product.update(p => {
-            p.stockQuantity = Math.max(0, (p.stockQuantity || 0) - quantityInBaseUnit);
-          });
-
-
-          setCart([]);
-
-          router.replace('/(tabs)/products');// Just a placeholder ID
-        }
-      });
-
+      setCart([]);
       Alert.alert(
-        'Sale Completed!',
-        `Successfully sold ${totalItems} items for ₣${totalAmount.toLocaleString()}`,
-        [{ text: 'OK', onPress: () => router.back() }]
+        paymentMode === 'cash' ? '✅ Sale Completed!' : '✅ Credit Sale Recorded!',
+        paymentMode === 'cash'
+          ? `Total: ₣${totalAmount.toLocaleString()}`
+          : `${customers.find(c => c.id === selectedCustomer)?.name || 'Customer'} now owes you ₣${totalAmount.toLocaleString()}`,
+        [{ text: 'OK', onPress: () => router.replace('/(tabs)/products') }]
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error recording sale:', error);
-      Alert.alert('Error', 'Failed to record sale');
+      Alert.alert('❌ Error', error.message || 'Failed to record sale. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const filteredProducts = products.filter(product =>
-    product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    product.sku?.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredProducts = products.filter(
+    product =>
+      product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (product.sku && product.sku.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  if (loading) {
+  if (loading && cart.length === 0) {
     return (
       <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
         <PremiumHeader title="Record Sale" showBackButton />
@@ -367,8 +423,8 @@ export default function RecordSaleScreen() {
           title="No Shop Found"
           description="Create a shop first to record sales"
           action={{
-            label: "Create Shop",
-            onPress: () => router.push('/(auth)/create-shop')
+            label: 'Create Shop',
+            onPress: () => router.push('/(auth)/create-shop'),
           }}
         />
       </View>
@@ -377,11 +433,12 @@ export default function RecordSaleScreen() {
 
   return (
     <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
-      <PremiumHeader 
+      <PremiumHeader
         title="Record Sale"
-        searchable searchPlaceholder="Search products by name or SKU..."
-        
-        //onSearchChange={setSearchQuery}
+        showBackButton
+        searchable
+        searchPlaceholder="Search products by name or SKU..."
+        onSearchChange={setSearchQuery}
       />
 
       <KeyboardAvoidingView
@@ -389,16 +446,18 @@ export default function RecordSaleScreen() {
         className="flex-1"
       >
         <View className="flex-1">
-          {/* Cart Summary - Fixed at top */}
+          {/* Cart Summary */}
           {cart.length > 0 && (
-            <Animated.View 
+            <Animated.View
               style={{
-                transform: [{
-                  scale: cartAnimation.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [1, 1.05]
-                  })
-                }]
+                transform: [
+                  {
+                    scale: cartAnimation.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [1, 1.05],
+                    }),
+                  },
+                ],
               }}
               className="bg-brand/10 border-b border-brand/20"
             >
@@ -413,12 +472,48 @@ export default function RecordSaleScreen() {
                         {cart.length} item{cart.length > 1 ? 's' : ''} • {totalItems} units
                       </ThemedText>
                     </View>
-                    <Button
-                      variant="default"
-                      onPress={processSale}
-                      icon="checkmark-circle"
-                    >
-                      Complete Sale
+
+                    {/* 💳 Payment Mode Toggle - ENHANCED */}
+                    <View className="mb-3 ">
+                      <View className="flex-row justify-center gap-2">
+                        <TouchableOpacity
+                          onPress={() => setPaymentMode('cash')}
+                          className={`px-4 py-2 rounded-full ${
+                            paymentMode === 'cash'
+                              ? 'bg-green-500 text-white'
+                              : 'bg-surface dark:bg-dark-surface border border-border dark:border-dark-border'
+                          }`}
+                        >
+                          <ThemedText
+                            variant={paymentMode === 'cash' ? 'label' : 'default'}
+                            size="sm"
+                            className="font-medium"
+                          >
+                            Cash
+                          </ThemedText>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          onPress={() => setPaymentMode('credit')}
+                          className={`px-4 py-2 rounded-full ${
+                            paymentMode === 'credit'
+                              ? 'bg-blue-500 text-white'
+                              : 'bg-surface dark:bg-dark-surface border border-border dark:border-dark-border'
+                          }`}
+                        >
+                          <ThemedText
+                            variant={paymentMode === 'credit' ? 'label' : 'default'}
+                            size="sm"
+                            className="font-medium"
+                          >
+                            Credit
+                          </ThemedText>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    <Button variant="default" onPress={processSale} icon="checkmark-circle" className='p-[2px]'>
+                      Complete
                     </Button>
                   </View>
                 </CardContent>
@@ -426,73 +521,16 @@ export default function RecordSaleScreen() {
             </Animated.View>
           )}
 
-          <ScrollView 
+          <ScrollView
             className="flex-1"
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 100 }}
           >
             <View className="p-4">
-              {/* Product Selection */}
               {!selectedProduct ? (
+                /* Product Selection */
                 <Card variant="elevated" className="mb-4 bg-surface dark:bg-dark-surface">
-                  {/* <CardHeader
-                    title="Select Products"
-                    subtitle="Search and add products to cart"
-                  /> */}
                   <CardContent className="p-4">
-                    {/* <SearchInput
-                      placeholder="Search products by name or SKU..."
-                      value={searchQuery}
-                      onChangeText={setSearchQuery}
-                      onClear={() => setSearchQuery('')}
-                    /> */}
-
-                    {/* Quick Sell Products */}
-                    {/* <View className="mt-4">
-                      <ThemedText variant="label" className="mb-3">
-                        Quick Sell - Top Products
-                      </ThemedText>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                        <View className="flex-row gap-3">
-                          {filteredProducts.slice(0, 8).map(product => (
-                            <TouchableOpacity
-                              key={product.id}
-                              onPress={() => {
-                                setSelectedProduct(product);
-                                setSelectedUnit(product.sellingUnit);
-                                generateQuickAmounts(product);
-                              }}
-                              className="w-24 items-center"
-                            >
-                              <View className="w-16 h-16 rounded-xl bg-surface-muted dark:bg-dark-surface-muted items-center justify-center mb-2 overflow-hidden">
-                                {product.imageUrl ? (
-                                  <Image 
-                                    source={{ uri: product.imageUrl }} 
-                                    className="w-full h-full"
-                                    resizeMode="cover"
-                                  />
-                                ) : (
-                                  <Ionicons name="cube-outline" size={24} color="#94a3b8" />
-                                )}
-                              </View>
-                              <ThemedText 
-                                variant="default" 
-                                size="sm" 
-                                numberOfLines={2}
-                                className="text-center"
-                              >
-                                {product.name}
-                              </ThemedText>
-                              <ThemedText variant="muted" size="xs" className="text-center">
-                                ₣{product.sellingPricePerBase}
-                              </ThemedText>
-                            </TouchableOpacity>
-                          ))}
-                        </View>
-                      </ScrollView>
-                    </View> */}
-
-                    {/* All Products List */}
                     <View className="mt-6">
                       <ThemedText variant="label" className="mb-3">
                         All Products
@@ -503,15 +541,15 @@ export default function RecordSaleScreen() {
                             key={product.id}
                             onPress={() => {
                               setSelectedProduct(product);
-                              setSelectedUnit(product.sellingUnit);
+                              setSelectedUnit(product.sellingUnit || product.baseUnit);
                               generateQuickAmounts(product);
                             }}
                             className="flex-row items-center p-3 bg-surface dark:bg-dark-surface rounded-lg border border-border dark:border-dark-border"
                           >
                             <View className="w-12 h-12 rounded-lg bg-surface-muted dark:bg-dark-surface-muted items-center justify-center mr-3 overflow-hidden">
                               {product.imageUrl ? (
-                                <Image 
-                                  source={{ uri: product.imageUrl }} 
+                                <Image
+                                  source={{ uri: product.imageUrl }}
                                   className="w-full h-full"
                                   resizeMode="cover"
                                 />
@@ -524,7 +562,7 @@ export default function RecordSaleScreen() {
                                 {product.name}
                               </ThemedText>
                               <ThemedText variant="muted" size="sm">
-                                FBU {product.stockQuantity} / {product.sellingUnit}
+                                FBU {product.stockQuantity} / {product.sellingUnit || product.baseUnit}
                               </ThemedText>
                             </View>
                             <Ionicons name="chevron-forward" size={20} color="#64748b" />
@@ -535,7 +573,7 @@ export default function RecordSaleScreen() {
                   </CardContent>
                 </Card>
               ) : (
-                /* Product Details & Quantity Selection */
+                /* Product Details */
                 <Card variant="elevated" className="mb-4">
                   <CardHeader
                     title={selectedProduct.name}
@@ -546,7 +584,9 @@ export default function RecordSaleScreen() {
                         size="sm"
                         onPress={resetProductSelection}
                         icon="close"
-                      >Close</Button>
+                      >
+                        Close
+                      </Button>
                     }
                   />
                   <CardContent className="p-4">
@@ -554,8 +594,8 @@ export default function RecordSaleScreen() {
                     <View className="flex-row items-center mb-6 p-4 bg-surface-soft dark:bg-dark-surface-soft rounded-lg">
                       <View className="w-16 h-16 rounded-lg bg-surface-muted dark:bg-dark-surface-muted items-center justify-center mr-4 overflow-hidden">
                         {selectedProduct.imageUrl ? (
-                          <Image 
-                            source={{ uri: selectedProduct.imageUrl }} 
+                          <Image
+                            source={{ uri: selectedProduct.imageUrl }}
                             className="w-full h-full"
                             resizeMode="cover"
                           />
@@ -570,15 +610,15 @@ export default function RecordSaleScreen() {
                         <ThemedText variant="muted" size="sm" className="mb-1">
                           FBU {selectedProduct.sellingPricePerBase} per {selectedProduct.baseUnit}
                         </ThemedText>
-                        <StockStatusBadge 
-                          status={getStockStatus(selectedProduct?.stockQuantity)} // You'd calculate actual stock
+                        <StockStatusBadge
+                          status={getStockStatus(selectedProduct?.stockQuantity)}
                           size="sm"
                           quantity={selectedProduct.stockQuantity}
                         />
                       </View>
                     </View>
 
-                    {/* Quick Amount Buttons */}
+                    {/* Quick Add */}
                     <View className="mb-6">
                       <ThemedText variant="label" className="mb-3">
                         Quick Add
@@ -598,9 +638,8 @@ export default function RecordSaleScreen() {
                       </View>
                     </View>
 
-                    {/* Custom Quantity Input */}
+                    {/* Custom Quantity */}
                     <View className="mb-6">
-                      
                       <View className="flex-row items-center gap-3">
                         <View className="flex-1">
                           <ThemedText variant="label" className="mb-3">
@@ -610,11 +649,11 @@ export default function RecordSaleScreen() {
                             placeholder={`Enter quantity in ${selectedUnit}`}
                             value={quantity}
                             onChangeText={setQuantity}
-                            keyboardType="phone-pad"
+                            keyboardType="numeric"
                           />
                         </View>
                         <View className="w-24">
-                          <ThemedText variant="muted" size="sm" className=" text-center">
+                          <ThemedText variant="muted" size="sm" className="text-center">
                             Unit
                           </ThemedText>
                           <View className="flex-row items-center justify-center px-3 py-3 bg-surface dark:bg-dark-surface rounded-base border border-border dark:border-dark-border">
@@ -626,7 +665,7 @@ export default function RecordSaleScreen() {
                       </View>
                     </View>
 
-                    {/* Quantity Adjuster */}
+                    {/* Adjuster */}
                     <View className="mb-6">
                       <ThemedText variant="label" className="mb-3">
                         Adjust Quantity
@@ -641,7 +680,7 @@ export default function RecordSaleScreen() {
                         >
                           <Ionicons name="remove" size={24} color="#64748b" />
                         </TouchableOpacity>
-                        
+
                         <View className="flex-1 items-center">
                           <ThemedText variant="heading" size="xl">
                             {quantity || '0'}
@@ -663,7 +702,6 @@ export default function RecordSaleScreen() {
                       </View>
                     </View>
 
-                    {/* Add to Cart Button */}
                     <Button
                       variant="default"
                       size="lg"
@@ -671,7 +709,10 @@ export default function RecordSaleScreen() {
                       disabled={!quantity || parseFloat(quantity) <= 0}
                       icon="cart"
                     >
-                      Add to Cart - ₣{quantity ? calculatePrice(selectedProduct, parseFloat(quantity), selectedUnit).toLocaleString() : '0'}
+                      Add to Cart - ₣
+                      {quantity
+                        ? calculatePrice(selectedProduct, parseFloat(quantity), selectedUnit).toLocaleString()
+                        : '0'}
                     </Button>
                   </CardContent>
                 </Card>
@@ -694,8 +735,8 @@ export default function RecordSaleScreen() {
                       >
                         <View className="w-12 h-12 rounded-lg bg-surface-muted dark:bg-dark-surface-muted items-center justify-center mr-3 overflow-hidden">
                           {item.imageUrl ? (
-                            <Image 
-                              source={{ uri: item.imageUrl }} 
+                            <Image
+                              source={{ uri: item.imageUrl }}
                               className="w-full h-full"
                               resizeMode="cover"
                             />
@@ -703,7 +744,7 @@ export default function RecordSaleScreen() {
                             <Ionicons name="cube-outline" size={20} color="#94a3b8" />
                           )}
                         </View>
-                        
+
                         <View className="flex-1">
                           <ThemedText variant="default" size="base" className="font-medium">
                             {item.productName}
@@ -717,7 +758,7 @@ export default function RecordSaleScreen() {
                           <ThemedText variant="heading" size="base">
                             ₣{item.totalPrice.toLocaleString()}
                           </ThemedText>
-                          
+
                           <View className="flex-row items-center space-x-2 mt-1">
                             <TouchableOpacity
                               onPress={() => updateCartQuantity(item.id, item.quantity - 1)}
@@ -725,11 +766,11 @@ export default function RecordSaleScreen() {
                             >
                               <Ionicons name="remove" size={14} color="#64748b" />
                             </TouchableOpacity>
-                            
+
                             <ThemedText variant="muted" size="sm">
                               {item.quantity}
                             </ThemedText>
-                            
+
                             <TouchableOpacity
                               onPress={() => updateCartQuantity(item.id, item.quantity + 1)}
                               className="w-6 h-6 items-center justify-center rounded-sm bg-surface-soft dark:bg-dark-surface-soft"
@@ -750,15 +791,81 @@ export default function RecordSaleScreen() {
                   </CardContent>
                 </Card>
               )}
+
+              
+            {/* 💳 Credit-Specific Fields - UPGRADED */}
+            {cart.length > 0 && paymentMode === 'credit' && (
+              <Card variant="elevated" className="mt-4">
+                <CardContent className="p-4">
+                  {/* Customer Selection */}
+                  <View className="mb-4">
+                    <ThemedText variant="label" className="mb-2 font-medium text-gray-700 dark:text-gray-300">
+                      Customer (Who owes you?)
+                    </ThemedText>
+                    <TouchableOpacity
+                      onPress={() => {
+                        router.push(`/shops/${currentShop.id}/contacts?selectFor=sale`);
+                      }}
+                      className="p-3 bg-surface dark:bg-dark-surface rounded-lg border border-border dark:border-dark-border flex-row justify-between items-center"
+                    >
+                      {selectedCustomer ? (
+                        <ThemedText variant="default">
+                          {customers.find(c => c.id === selectedCustomer)?.name || 'Unknown'}
+                        </ThemedText>
+                      ) : (
+                        <ThemedText variant="muted">Select a customer</ThemedText>
+                      )}
+                      <Ionicons name="chevron-forward" size={20} color="#64748b" />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Due Date Picker */}
+                  <View>
+                    <ThemedText variant="label" className="mb-2 font-medium text-gray-700 dark:text-gray-300">
+                      Due Date (Optional)
+                    </ThemedText>
+                    <TouchableOpacity
+                      onPress={() => setShowDatePicker(true)}
+                      className="p-3 bg-surface dark:bg-dark-surface rounded-lg border border-border dark:border-dark-border"
+                    >
+                      <ThemedText variant="default">
+                        {dueDate 
+                          ? new Date(dueDate).toLocaleDateString() 
+                          : 'Tap to set due date'}
+                      </ThemedText>
+                    </TouchableOpacity>
+                  </View>
+                </CardContent>
+              </Card>
+            )}
+          
+
             </View>
           </ScrollView>
         </View>
+
+        {/* 📅 Date Picker Modal */}
+        {showDatePicker && (
+          <DateTimePicker
+            value={dueDate ? new Date(dueDate) : new Date()}
+            mode="date"
+            display="default"
+            onChange={(event, selectedDate) => {
+              setShowDatePicker(false);
+              if (selectedDate) {
+                // Set to end of day (23:59:59) to avoid timezone issues
+                const endOfDay = new Date(selectedDate);
+                endOfDay.setHours(23, 59, 59, 999);
+                setDueDate(endOfDay.getTime());
+              }
+            }}
+          />
+        )}
       </KeyboardAvoidingView>
     </View>
   );
 }
 
-// Helper function for stock status (you'll implement actual stock calculation)
 const getStockStatus = (stock: number, threshold: number = 10) => {
   if (stock === 0) return 'out-of-stock';
   if (stock <= threshold) return 'low-stock';

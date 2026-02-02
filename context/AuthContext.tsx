@@ -30,6 +30,11 @@ interface AuthContextValue {
   handleUserLogin: (user: User) => Promise<void>;
   hasSeedsForCurrentShop:  boolean;
 
+  // selected contact for temporary use in various flows
+  // 👇 NEW: Temporary contact selection for flows like sales/purchases
+  tempSelectedContact: string | null;
+  setTempSelectedContact: (id: string | null) => void;
+
   // SIMPLE Network check - Just these 3 properties
   isConnected: boolean; // Has WiFi or mobile data enabled
   connectionType: 'wifi' | 'cellular' | 'none' | 'unknown'; // Type of connection
@@ -53,6 +58,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const [isFirstTime, setIsFirstTime] = useState(false);
   const [hasSeeds, setHasSeeds] = useState<Record<string, boolean>>({});
+  // 👇 NEW: State for temporary contact selection
+  const [tempSelectedContact, setTempSelectedContact] = useState<string | null>(null);
 
   // Simple network state
   const [isConnected, setIsConnected] = useState(false);
@@ -80,6 +87,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => unsubscribe();
   }, []);
+
+  // Optional: Clear temp selection on shop change
+  useEffect(() => {
+    if (currentShop) {
+      setTempSelectedContact(null);
+    }
+  }, [currentShop]);
 
 
   // In the init function, fix the logic:
@@ -301,6 +315,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isConnected,
         connectionType,
         isWifi,
+        tempSelectedContact,        // 👈 Expose getter
+        setTempSelectedContact,     // 👈 Expose setter
       }}
     >
       {children}

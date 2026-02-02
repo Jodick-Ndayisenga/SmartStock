@@ -3,12 +3,14 @@ import database from '@/database';
 import { CashAccount } from '@/database/models/CashAccount';
 import { Q } from '@nozbe/watermelondb';
 
+export type CashAccountType = 'cash' | 'bank_account' | 'mobile_money' | 'credit_card' | 'petty_cash';
+
 const cashAccounts = database.get<CashAccount>('cash_accounts');
 
 export type CashAccountData = {
   shopId: string;
   name: string;
-  type: 'cash' | 'bank_account' | 'mobile_money' | 'credit_card' | 'petty_cash';
+  type: CashAccountType;
   accountNumber?: string;
   bankName?: string;
   openingBalance: number;
