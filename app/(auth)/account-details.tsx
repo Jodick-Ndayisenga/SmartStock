@@ -32,6 +32,7 @@ import * as Haptics from 'expo-haptics';
 import * as Print from 'expo-print';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import PremiumHeader from '@/components/layout/PremiumHeader';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -197,6 +198,10 @@ const TransactionItem = ({
     }).start();
   };
 
+  //console.log(transaction?.transactionDate)
+
+
+
   return (
     <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
       <TouchableOpacity
@@ -223,7 +228,9 @@ const TransactionItem = ({
         <View className="flex-1">
           <View className="flex-row justify-between items-center mb-1">
             <Text className={`text-base font-semibold ${isDark ? 'text-dark-text' : 'text-text'}`}>
-              {transaction.displayDescription}
+              {transaction.displayDescription.length > 25 
+                ? `${transaction.displayDescription.slice(0, 25)}...`
+                : transaction.displayDescription}
             </Text>
             <Text className={`text-base font-bold ${
               transaction.displayType === 'income' 
@@ -239,7 +246,7 @@ const TransactionItem = ({
           
           <View className="flex-row items-center">
             <Text className={`text-sm ${isDark ? 'text-dark-text-soft' : 'text-text-soft'}`}>
-              {new Date(transaction.transactionDate).toLocaleDateString()}
+              {new Date(transaction.transactionDate || Date.now()).toLocaleDateString()}
             </Text>
             {transaction.categoryName && (
               <>
@@ -318,19 +325,24 @@ const StatCard = ({
   </View>
 );
 
-// Export Modal Component (unchanged logic)
-const ExportModal = ({ 
-  visible, 
-  onClose, 
+// Replace your existing ExportModal component with this enhanced version
+const ExportModal = ({
+  visible,
+  onClose,
   account,
-  isDark 
-}: { 
-  visible: boolean; 
-  onClose: () => void; 
+  transactions,
+  stats,
+  isDark
+}: {
+  visible: boolean;
+  onClose: () => void;
   account: CashAccount;
+  transactions: EnhancedTransaction[];
+  stats: any;
   isDark: boolean;
 }) => {
   const [isExporting, setIsExporting] = useState(false);
+  const [selectedPeriod, setSelectedPeriod] = useState('all');
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
 
   useEffect(() => {
@@ -346,60 +358,422 @@ const ExportModal = ({
     }
   }, [visible]);
 
+  // Filter transactions based on selected period
+  const filterTransactionsByPeriod = (period: string) => {
+    const now = new Date();
+    return transactions.filter(tx => {
+      const txDate = new Date(tx.transactionDate || Date.now());
+      
+      switch (period) {
+        case 'today':
+          return txDate.toDateString() === now.toDateString();
+        case 'week':
+          const weekAgo = new Date(now);
+          weekAgo.setDate(now.getDate() - 7);
+          return txDate >= weekAgo;
+        case 'month':
+          return txDate.getMonth() === now.getMonth() && 
+                 txDate.getFullYear() === now.getFullYear();
+        default:
+          return true; // 'all' period
+      }
+    });
+  };
+
+  // Generate PDF HTML
+  const generatePDFHTML = (period: string) => {
+    const filteredTransactions = filterTransactionsByPeriod(period);
+    const periodLabel = period === 'all' ? 'All Time' : 
+                       period === 'today' ? 'Today' :
+                       period === 'week' ? 'This Week' : 'This Month';
+    
+    const currencySymbol = account.currency === 'BIF' ? 'FBu' : '$';
+    
+    // Calculate period stats
+    const periodStats = {
+      income: filteredTransactions.filter(t => t.displayType === 'income')
+                .reduce((sum, t) => sum + t.displayAmount, 0),
+      expense: filteredTransactions.filter(t => t.displayType === 'expense')
+                 .reduce((sum, t) => sum + t.displayAmount, 0),
+      transfer: filteredTransactions.filter(t => t.displayType === 'transfer')
+                 .reduce((sum, t) => sum + t.displayAmount, 0),
+      count: filteredTransactions.length
+    };
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <style>
+          @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+          
+          body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            margin: 0;
+            padding: 40px;
+            color: #1f2937;
+            background: white;
+            line-height: 1.6;
+          }
+          
+          /* Header */
+          .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 30px;
+            border-bottom: 2px solid #e5e7eb;
+          }
+          
+          .title {
+            font-size: 32px;
+            font-weight: 700;
+            color: #111827;
+            margin-bottom: 8px;
+          }
+          
+          .subtitle {
+            font-size: 16px;
+            color: #6b7280;
+            margin-bottom: 12px;
+          }
+          
+          .meta {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            font-size: 14px;
+            color: #9ca3af;
+          }
+          
+          /* Account Info Card */
+          .account-card {
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 40px;
+            border: 1px solid #e2e8f0;
+          }
+          
+          .account-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 25px;
+          }
+          
+          .account-name {
+            font-size: 24px;
+            font-weight: 600;
+            color: #111827;
+          }
+          
+          .account-balance {
+            font-size: 28px;
+            font-weight: 700;
+            color: #059669;
+          }
+          
+          .account-details {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+          }
+          
+          .detail-item {
+            margin-bottom: 15px;
+          }
+          
+          .detail-label {
+            font-size: 14px;
+            color: #64748b;
+            font-weight: 500;
+            margin-bottom: 4px;
+          }
+          
+          .detail-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1f2937;
+          }
+          
+          /* Stats Grid */
+          .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-bottom: 40px;
+          }
+          
+          .stat-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+          }
+          
+          .stat-value {
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 8px;
+          }
+          
+          .stat-income { color: #059669; }
+          .stat-expense { color: #dc2626; }
+          .stat-transfer { color: #3b82f6; }
+          .stat-count { color: #7c3aed; }
+          
+          .stat-label {
+            font-size: 14px;
+            color: #6b7280;
+            font-weight: 500;
+          }
+          
+          /* Transactions Table */
+          .transactions-section {
+            margin-top: 40px;
+          }
+          
+          .section-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #111827;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e5e7eb;
+          }
+          
+          .transaction-count {
+            font-size: 14px;
+            color: #6b7280;
+            margin-bottom: 20px;
+          }
+          
+          .transactions-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+          }
+          
+          .transactions-table th {
+            background: #f8fafc;
+            color: #374151;
+            font-weight: 600;
+            text-align: left;
+            padding: 14px 16px;
+            border-bottom: 2px solid #e5e7eb;
+          }
+          
+          .transactions-table td {
+            padding: 16px;
+            border-bottom: 1px solid #f1f5f9;
+          }
+          
+          .type-cell {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 500;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+          }
+          
+          .type-income { background: #d1fae5; color: #065f46; }
+          .type-expense { background: #fee2e2; color: #991b1b; }
+          .type-transfer { background: #dbeafe; color: #1e40af; }
+          
+          .amount-cell {
+            font-weight: 600;
+            font-size: 15px;
+          }
+          
+          .amount-income { color: #059669; }
+          .amount-expense { color: #dc2626; }
+          .amount-transfer { color: #3b82f6; }
+          
+          .category-cell {
+            font-size: 13px;
+            color: #6b7280;
+          }
+          
+          .date-cell {
+            color: #6b7280;
+            font-size: 13px;
+          }
+          
+          /* Footer */
+          .footer {
+            margin-top: 60px;
+            padding-top: 30px;
+            border-top: 2px solid #e5e7eb;
+            text-align: center;
+            color: #9ca3af;
+            font-size: 13px;
+          }
+          
+          .footer-note {
+            margin-top: 8px;
+            font-style: italic;
+          }
+          
+          /* Responsive */
+          @media print {
+            body { padding: 20px; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .account-details { grid-template-columns: 1fr; }
+          }
+        </style>
+      </head>
+      <body>
+        <!-- Header -->
+        <div class="header">
+          <h1 class="title">Transaction Report</h1>
+          <div class="subtitle">${account.name} • ${periodLabel}</div>
+          <div class="meta">
+            <span>Generated: ${new Date().toLocaleDateString()}</span>
+            <span>•</span>
+            <span>Account: ${account.type}</span>
+            <span>•</span>
+            <span>Currency: ${account.currency}</span>
+          </div>
+        </div>
+        
+        <!-- Account Info -->
+        <div class="account-card">
+          <div class="account-header">
+            <div class="account-name">${account.name}</div>
+            <div class="account-balance">${currencySymbol} ${account.currentBalance.toLocaleString()}</div>
+          </div>
+          <div class="account-details">
+            <div class="detail-item">
+              <div class="detail-label">Account Type</div>
+              <div class="detail-value">${account.type}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-label">Opening Balance</div>
+              <div class="detail-value">${currencySymbol} ${account.openingBalance.toLocaleString()}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-label">Status</div>
+              <div class="detail-value">${account.isActive ? 'Active' : 'Inactive'}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-label">Bank</div>
+              <div class="detail-value">${account.bankName || 'Not specified'}</div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Period Stats -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value stat-income">${currencySymbol} ${periodStats.income.toLocaleString()}</div>
+            <div class="stat-label">Total Income</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value stat-expense">${currencySymbol} ${periodStats.expense.toLocaleString()}</div>
+            <div class="stat-label">Total Expense</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value stat-transfer">${currencySymbol} ${periodStats.transfer.toLocaleString()}</div>
+            <div class="stat-label">Total Transfer</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value stat-count">${periodStats.count}</div>
+            <div class="stat-label">Transactions</div>
+          </div>
+        </div>
+        
+        <!-- Transactions -->
+        <div class="transactions-section">
+          <h2 class="section-title">Transaction Details</h2>
+          <div class="transaction-count">Showing ${filteredTransactions.length} transactions</div>
+          
+          <table class="transactions-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Description</th>
+                <th>Category</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filteredTransactions.map(transaction => {
+                const typeClass = transaction.displayType;
+                const typeConfig = TRANSACTION_TYPES[transaction.displayType];
+                
+                return `
+                  <tr>
+                    <td class="date-cell">
+                      ${new Date(transaction.transactionDate || Date.now()).toLocaleDateString()}
+                    </td>
+                    <td>
+                      <span class="type-cell type-${typeClass}">
+                        ${typeConfig.label}
+                      </span>
+                    </td>
+                    <td style="font-weight: 500;">${transaction.displayDescription}</td>
+                    <td class="category-cell">${transaction.categoryName || '-'}</td>
+                    <td class="amount-cell amount-${typeClass}">
+                      ${transaction.displayType === 'income' ? '+' : '-'}
+                      ${currencySymbol} ${transaction.displayAmount.toLocaleString()}
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+          <div>Report generated by ${account.bankName || 'Finance App'}</div>
+          <div class="footer-note">Total Balance: ${currencySymbol} ${account.currentBalance.toLocaleString()}</div>
+        </div>
+      </body>
+      </html>
+    `;
+  };
+
   const exportToPDF = async (period: string) => {
     try {
       setIsExporting(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       
-      const html = `
-        <html>
-          <head>
-            <style>
-              body { font-family: Arial, sans-serif; padding: 20px; }
-              .header { text-align: center; margin-bottom: 30px; }
-              .title { font-size: 24px; font-weight: bold; color: #333; }
-              .subtitle { color: #666; margin-bottom: 20px; }
-              .info { margin-bottom: 20px; }
-              .info-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
-              .section { margin-top: 30px; }
-              .section-title { font-size: 18px; font-weight: bold; margin-bottom: 10px; }
-              table { width: 100%; border-collapse: collapse; }
-              th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
-              th { background-color: #f5f5f5; }
-              .positive { color: green; }
-              .negative { color: red; }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <div class="title">${account.name} - Transaction Report</div>
-              <div class="subtitle">Generated on ${new Date().toLocaleDateString()}</div>
-            </div>
-            <div class="info">
-              <div class="info-row"><strong>Account Type:</strong> ${account.type}</div>
-              <div class="info-row"><strong>Current Balance:</strong> ${account.currentBalance}</div>
-              <div class="info-row"><strong>Currency:</strong> ${account.currency}</div>
-            </div>
-            <div class="section">
-              <div class="section-title">Recent Transactions</div>
-              <p>Transaction list would appear here...</p>
-            </div>
-          </body>
-        </html>
-      `;
-
-      const { uri } = await Print.printToFileAsync({ html });
-      const newUri = `${FileSystem.documentDirectory}${account.name.replace(/[^a-z0-9]/gi, '_')}_Report.pdf`;
+      const html = generatePDFHTML(period);
+      
+      const { uri } = await Print.printToFileAsync({ 
+        html,
+        width: 595,  // A4 width in points
+        height: 842, // A4 height in points
+        margins: {
+          top: 40,
+          bottom: 40,
+          left: 40,
+          right: 40
+        }
+      });
+      
+      const timestamp = new Date().toISOString().split('T')[0];
+      const filename = `${account.name.replace(/[^a-z0-9]/gi, '_')}_Report_${timestamp}.pdf`;
+      const newUri = `${FileSystem.documentDirectory}${filename}`;
+      
       await FileSystem.moveAsync({ from: uri, to: newUri });
       
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(newUri, {
           mimeType: 'application/pdf',
-          dialogTitle: `Export ${account.name} Report`
+          dialogTitle: `Export ${account.name} Report`,
+          UTI: 'com.adobe.pdf'
         });
       }
       
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert('Success', 'Report exported successfully!');
+      Alert.alert('Success', 'Report exported and shared successfully!');
       onClose();
     } catch (error) {
       console.error('Export error:', error);
@@ -410,11 +784,11 @@ const ExportModal = ({
     }
   };
 
-  const exportOptions = [
-    { id: 'today', label: 'Today', icon: 'calendar-outline' },
+  const periodOptions = [
+    { id: 'today', label: 'Today', icon: 'today-outline' },
     { id: 'week', label: 'This Week', icon: 'calendar-outline' },
     { id: 'month', label: 'This Month', icon: 'calendar-outline' },
-    { id: 'custom', label: 'Custom Range', icon: 'calendar-outline' },
+    { id: 'all', label: 'All Time', icon: 'time-outline' },
   ];
 
   return (
@@ -434,52 +808,160 @@ const ExportModal = ({
         <Animated.View 
           style={{ 
             transform: [{ translateY: slideAnim }],
-            height: '50%'
+            height: '65%'
           }}
           className="absolute bottom-0 left-0 right-0 rounded-t-3xl overflow-hidden"
         >
           <View className={`flex-1 ${isDark ? 'bg-dark-surface' : 'bg-surface'}`}>
+            {/* Header */}
             <View className={`p-6 border-b ${isDark ? 'border-dark-border' : 'border-border'}`}>
               <View className="flex-row items-center justify-between mb-4">
                 <View className="flex-row items-center">
-                  <View className={`w-10 h-10 rounded-xl items-center justify-center mr-3 ${isDark ? 'bg-dark-brand/20' : 'bg-brand/10'}`}>
-                    <Feather name="download" size={20} color={isDark ? '#38bdf8' : '#0ea5e9'} />
+                  <View className={`w-12 h-12 rounded-xl items-center justify-center mr-3 ${isDark ? 'bg-dark-brand/20' : 'bg-brand/10'}`}>
+                    <Feather name="file-text" size={24} color={isDark ? '#38bdf8' : '#0ea5e9'} />
                   </View>
-                  <Text className={`text-2xl font-bold ${isDark ? 'text-dark-text' : 'text-text'}`}>Export Report</Text>
+                  <View>
+                    <Text className={`text-2xl font-bold ${isDark ? 'text-dark-text' : 'text-text'}`}>
+                      Export Report
+                    </Text>
+                    <Text className={`text-sm mt-1 ${isDark ? 'text-dark-text-soft' : 'text-text-soft'}`}>
+                      ${account.currentBalance.toLocaleString()} • ${transactions.length} transactions
+                    </Text>
+                  </View>
                 </View>
-                <TouchableOpacity onPress={onClose}>
-                  <Ionicons name="close" size={28} color={isDark ? '#94a3b8' : '#64748b'} />
+                <TouchableOpacity 
+                  onPress={onClose}
+                  className="w-10 h-10 rounded-full items-center justify-center"
+                  style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' }}
+                >
+                  <Ionicons name="close" size={24} color={isDark ? '#94a3b8' : '#64748b'} />
                 </TouchableOpacity>
               </View>
-              <Text className={`text-base ${isDark ? 'text-dark-text-soft' : 'text-text-soft'}`}>
-                Select a time period to export transactions
-              </Text>
             </View>
 
-            <ScrollView className="p-6">
-              <View className="space-y-3">
-                {exportOptions.map(option => (
-                  <TouchableOpacity
-                    key={option.id}
-                    onPress={() => exportToPDF(option.id)}
-                    disabled={isExporting}
-                    className={`flex-row items-center p-4 rounded-2xl ${isDark ? 'bg-dark-surface-soft' : 'bg-surface-soft'} border ${isDark ? 'border-dark-border' : 'border-border'}`}
-                  >
-                    <View className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-900/30 items-center justify-center mr-4">
-                      <Ionicons name={option.icon} size={20} color={isDark ? '#60a5fa' : '#3b82f6'} />
+            <ScrollView className="flex-1 p-6" showsVerticalScrollIndicator={false}>
+              {/* Period Selection */}
+              <View className="mb-8">
+                <View className="flex-row items-center justify-between mb-4">
+                  <Text className={`text-lg font-semibold ${isDark ? 'text-dark-text' : 'text-text'}`}>
+                    Select Period
+                  </Text>
+                  <View className="px-3 py-1 rounded-full bg-surface-muted dark:bg-dark-surface-muted">
+                    <Text className={`text-sm ${isDark ? 'text-dark-text-soft' : 'text-text-soft'}`}>
+                      {filterTransactionsByPeriod(selectedPeriod).length} transactions
+                    </Text>
+                  </View>
+                </View>
+                
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-2">
+                  <View className="flex-row gap-3">
+                    {periodOptions.map(option => (
+                      <TouchableOpacity
+                        key={option.id}
+                        onPress={() => setSelectedPeriod(option.id)}
+                        className={`
+                          flex-row items-center px-4 py-3 rounded-xl min-w-[120px]
+                          ${selectedPeriod === option.id 
+                            ? isDark ? 'bg-dark-brand' : 'bg-brand'
+                            : isDark ? 'bg-dark-surface-soft' : 'bg-surface-soft'
+                          }
+                          border ${isDark ? 'border-dark-border' : 'border-border'}
+                        `}
+                      >
+                        <Ionicons 
+                          name={option?.icon} 
+                          size={20} 
+                          color={selectedPeriod === option.id ? 'white' : (isDark ? '#94a3b8' : '#64748b')} 
+                          style={{ marginRight: 8 }}
+                        />
+                        <Text 
+                          className={`font-medium ${
+                            selectedPeriod === option.id 
+                              ? 'text-white' 
+                              : isDark ? 'text-dark-text' : 'text-text'
+                          }`}
+                        >
+                          {option.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </ScrollView>
+              </View>
+
+              {/* Report Preview */}
+              <View className={`rounded-2xl p-5 mb-8 ${isDark ? 'bg-dark-surface-soft' : 'bg-surface'} border ${isDark ? 'border-dark-border' : 'border-border'}`}>
+                <Text className={`text-lg font-semibold mb-4 ${isDark ? 'text-dark-text' : 'text-text'}`}>
+                  Report Preview
+                </Text>
+                
+                <View className="space-y-4">
+                  <View className="flex-row items-center justify-between">
+                    <Text className={`${isDark ? 'text-dark-text-soft' : 'text-text-soft'}`}>Account</Text>
+                    <Text className={`font-semibold ${isDark ? 'text-dark-text' : 'text-text'}`}>
+                      {account.name}
+                    </Text>
+                  </View>
+                  
+                  <View className="flex-row items-center justify-between">
+                    <Text className={`${isDark ? 'text-dark-text-soft' : 'text-text-soft'}`}>Period</Text>
+                    <Text className={`font-semibold ${isDark ? 'text-dark-text' : 'text-text'}`}>
+                      {periodOptions.find(o => o.id === selectedPeriod)?.label}
+                    </Text>
+                  </View>
+                  
+                  <View className="flex-row items-center justify-between">
+                    <Text className={`${isDark ? 'text-dark-text-soft' : 'text-text-soft'}`}>Transactions</Text>
+                    <Text className="font-semibold text-brand">
+                      {filterTransactionsByPeriod(selectedPeriod).length} items
+                    </Text>
+                  </View>
+                  
+                  <View className="flex-row items-center justify-between">
+                    <Text className={`${isDark ? 'text-dark-text-soft' : 'text-text-soft'}`}>Format</Text>
+                    <View className="flex-row items-center">
+                      <Ionicons name="document-text-outline" size={18} color={isDark ? '#38bdf8' : '#0ea5e9'} />
+                      <Text className={`font-semibold ml-2 ${isDark ? 'text-dark-text' : 'text-text'}`}>
+                        PDF Document
+                      </Text>
                     </View>
-                    <Text className={`flex-1 text-base font-medium ${isDark ? 'text-dark-text' : 'text-text'}`}>{option.label}</Text>
-                    <Ionicons name="chevron-forward" size={20} color={isDark ? '#94a3b8' : '#64748b'} />
-                  </TouchableOpacity>
-                ))}
+                  </View>
+                </View>
+              </View>
+
+              {/* Export Button */}
+              <TouchableOpacity
+                onPress={() => exportToPDF(selectedPeriod)}
+                disabled={isExporting}
+                className={`
+                  flex-row items-center justify-center py-4 rounded-xl mb-6
+                  ${isExporting ? 'opacity-70' : ''}
+                  ${isDark ? 'bg-dark-brand' : 'bg-brand'}
+                `}
+              >
+                {isExporting ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <>
+                    <Ionicons name="download-outline" size={22} color="white" style={{ marginRight: 10 }} />
+                    <Text className="text-white text-lg font-semibold">
+                      Generate & Export PDF
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              {/* Info Note */}
+              <View className={`rounded-xl p-4 ${isDark ? 'bg-dark-surface-muted/50' : 'bg-surface-muted/50'} border ${isDark ? 'border-dark-border/50' : 'border-border/50'}`}>
+                <View className="flex-row items-start">
+                  <Ionicons name="information-circle-outline" size={20} color={isDark ? '#94a3b8' : '#64748b'} style={{ marginTop: 2, marginRight: 10 }} />
+                  <Text className={`text-sm flex-1 ${isDark ? 'text-dark-text-soft' : 'text-text-soft'}`}>
+                    The report will include all transactions, account details, and summary statistics. 
+                    Generated PDF will be saved and shared via your device's sharing options.
+                  </Text>
+                </View>
               </View>
             </ScrollView>
-
-            <View className={`p-6 border-t ${isDark ? 'border-dark-border' : 'border-border'}`}>
-              <TouchableOpacity onPress={onClose} disabled={isExporting} className="py-4 rounded-xl items-center justify-center">
-                <Text className={`text-base font-medium ${isDark ? 'text-dark-text-soft' : 'text-text-soft'}`}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
           </View>
         </Animated.View>
       </View>
@@ -548,6 +1030,7 @@ export default function AccountDetailsScreen() {
         const displayType = getTransactionDisplayType(tx.transactionType);
         const displayAmount = tx.totalAmount;
         const displayDescription = tx.notes || tx.transactionNumber || 'No description';
+        //console.log(tx.transactionDate)
 
         // Resolve category name if available
         let categoryName: string | undefined;
@@ -574,7 +1057,7 @@ export default function AccountDetailsScreen() {
         if (displayType === 'expense') totalExpense += displayAmount;
       }
 
-      setTransactions(enhancedTxs.slice(0, 5)); // Show top 5
+      setTransactions(enhancedTxs.slice(0, 20)); // Show top 5
 
       const netFlow = totalIncome - totalExpense;
       setStats({
@@ -610,7 +1093,7 @@ export default function AccountDetailsScreen() {
   const handleAddTransaction = (type: 'income' | 'expense' | 'transfer') => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     router.push({
-      pathname: '/(tabs)/add-transaction',
+      pathname: '/(auth)/add-transaction',
       params: {
         accountId: account?.id,
         accountName: account?.name,
@@ -622,7 +1105,7 @@ export default function AccountDetailsScreen() {
   const handleEditAccount = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     router.push({
-      pathname: '/(tabs)/cash-accounts',
+      pathname: '/(auth)/cash-account',
       params: { editAccountId: account?.id }
     });
   };
@@ -663,7 +1146,8 @@ export default function AccountDetailsScreen() {
   const currencySymbol = account.currency === 'BIF' ? 'FBu' : '$';
 
   return (
-    <SafeAreaView className={`flex-1 ${isDark ? 'bg-dark-surface' : 'bg-surface-soft'}`}>
+    <View className={`flex-1 ${isDark ? 'bg-dark-surface' : 'bg-surface-soft'}`}>
+      <PremiumHeader title='Account Information' showBackButton subtitle='Money movement details and history'/>
       <Animated.ScrollView
         style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}
         showsVerticalScrollIndicator={false}
@@ -671,14 +1155,14 @@ export default function AccountDetailsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={isDark ? '#94a3b8' : '#64748b'} />
         }
       >
-        <View className="px-6 pt-8 pb-6">
+        <View className="px-2 pt-8 pb-6">
           <View className="flex-row items-center justify-between mb-6">
             <View className="flex-row items-center">
               <TouchableOpacity onPress={() => router.back()} className="w-10 h-10 rounded-xl bg-surface-muted dark:bg-dark-surface-muted items-center justify-center mr-3">
                 <Ionicons name="arrow-back" size={20} color={isDark ? '#94a3b8' : '#64748b'} />
               </TouchableOpacity>
               <View>
-                <Text className={`text-2xl font-bold ${isDark ? 'text-dark-text' : 'text-text'}`}>Account Details</Text>
+                <Text className={`text-2xl font-bold ${isDark ? 'text-dark-text' : 'text-text'}`}>Cash Flow History</Text>
                 <Text className={`text-base ${isDark ? 'text-dark-text-soft' : 'text-text-soft'}`}>
                   {account.isDefault ? 'Default Account • ' : ''}Updated just now
                 </Text>
@@ -718,7 +1202,7 @@ export default function AccountDetailsScreen() {
 
             <View className="items-center py-6 border-t border-b border-border dark:border-dark-border">
               <Text className={`text-base font-medium ${isDark ? 'text-dark-text-soft' : 'text-text-soft'}`}>Current Balance</Text>
-              <Text className={`text-5xl font-bold mt-2 ${isDark ? 'text-dark-text' : 'text-text'}`}>{currencySymbol}{account.currentBalance.toLocaleString()}</Text>
+              <Text className={`text-4xl font-bold mt-2 ${isDark ? 'text-dark-text' : 'text-text'}`}>{currencySymbol} {account.currentBalance.toLocaleString()}</Text>
               <Text className={`text-sm mt-2 ${isDark ? 'text-dark-text-soft' : 'text-text-soft'}`}>Opening: {currencySymbol}{account.openingBalance.toLocaleString()}</Text>
             </View>
 
@@ -732,7 +1216,7 @@ export default function AccountDetailsScreen() {
               {account.notes && (
                 <View className="flex-row">
                   <Ionicons name="document-text-outline" size={18} color={isDark ? '#94a3b8' : '#64748b'} style={{ marginTop: 2 }} />
-                  <Text className={`ml-3 text-base flex-1 ${isDark ? 'text-dark-text' : 'text-text'}`}>{account.notes}</Text>
+                  <Text className={`ml-3 text-base flex-1 ${isDark ? 'text-dark-text' : 'text-text'}`}>{account.notes.length > 40 ? `${account.notes.slice(0, 40)}...` : account.notes}</Text>
                 </View>
               )}
             </View>
@@ -740,23 +1224,30 @@ export default function AccountDetailsScreen() {
 
           <View className="mb-8">
             <Text className={`text-lg font-semibold mb-4 ${isDark ? 'text-dark-text' : 'text-text'}`}>Quick Actions</Text>
-            <View className="flex-row justify-between">
+            <View className="flex-row justify-between gap-1">
               <QuickActionButton icon="add-circle-outline" label="Add Income" color="#22c55e" onPress={() => handleAddTransaction('income')} isDark={isDark} />
               <QuickActionButton icon="remove-circle-outline" label="Add Expense" color="#ef4444" onPress={() => handleAddTransaction('expense')} isDark={isDark} />
               <QuickActionButton icon="swap-horizontal-outline" label="Transfer" color="#0ea5e9" onPress={() => handleAddTransaction('transfer')} isDark={isDark} />
-              <QuickActionButton icon="download-outline" label="Export" color="#8b5cf6" onPress={handleExport} isDark={isDark} />
+              {/* <QuickActionButton icon="download-outline" label="Export" color="#8b5cf6" onPress={handleExport} isDark={isDark} /> */}
+              <QuickActionButton 
+                icon="download-outline" 
+                label="Export" 
+                color="#8b5cf6" 
+                onPress={() => setShowExportModal(true)} 
+                isDark={isDark} 
+              />
             </View>
           </View>
 
           <View className="mb-8">
             <Text className={`text-lg font-semibold mb-4 ${isDark ? 'text-dark-text' : 'text-text'}`}>Account Statistics</Text>
             <View className="flex-row gap-4">
-              <StatCard icon="trending-up" label="Total Income" value={`${currencySymbol}${stats.totalIncome.toLocaleString()}`} change={stats.totalIncome > 0 ? `+${stats.totalIncome}` : undefined} color="#22c55e" isDark={isDark} />
-              <StatCard icon="trending-down" label="Total Expense" value={`${currencySymbol}${stats.totalExpense.toLocaleString()}`} change={stats.totalExpense > 0 ? `-${stats.totalExpense}` : undefined} color="#ef4444" isDark={isDark} />
+              <StatCard icon="trending-up" label="Total Income" value={`${currencySymbol} ${stats.totalIncome.toLocaleString()}`} change={stats.totalIncome > 0 ? `+${stats.totalIncome}` : undefined} color="#22c55e" isDark={isDark} />
+              <StatCard icon="trending-down" label="Total Expense" value={`${currencySymbol} ${stats.totalExpense.toLocaleString()}`} change={stats.totalExpense > 0 ? `-${stats.totalExpense}` : undefined} color="#ef4444" isDark={isDark} />
             </View>
             <View className="flex-row gap-4 mt-4">
               <StatCard icon="repeat" label="Transactions" value={stats.transactionCount.toString()} color="#0ea5e9" isDark={isDark} />
-              <StatCard icon="pulse" label="Net Flow" value={`${currencySymbol}${Math.abs(stats.netFlow).toLocaleString()}`} change={stats.netFlow >= 0 ? `+${stats.netFlow}` : `${stats.netFlow}`} color={stats.netFlow >= 0 ? '#22c55e' : '#ef4444'} isDark={isDark} />
+              <StatCard icon="pulse" label="Net Flow" value={`${currencySymbol} ${Math.abs(stats.netFlow).toLocaleString()}`} change={stats.netFlow >= 0 ? `+${stats.netFlow}` : `${stats.netFlow}`} color={stats.netFlow >= 0 ? '#22c55e' : '#ef4444'} isDark={isDark} />
             </View>
           </View>
 
@@ -792,16 +1283,19 @@ export default function AccountDetailsScreen() {
         <View className="h-32" />
       </Animated.ScrollView>
 
+ 
       {account && (
         <ExportModal
           visible={showExportModal}
           onClose={() => setShowExportModal(false)}
           account={account}
+          transactions={transactions}
+          stats={stats}
           isDark={isDark}
         />
       )}
 
       <View className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-surface-soft/90 to-transparent dark:from-dark-surface/90 pointer-events-none" />
-    </SafeAreaView>
+    </View>
   );
 }

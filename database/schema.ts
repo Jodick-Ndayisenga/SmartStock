@@ -10,7 +10,7 @@ const syncColumns = [
 ];
 
 export default appSchema({
-  version: 1,
+  version: 2,
   tables: [
     // ─── SHOP ───────────────────────────────────────
     tableSchema({
@@ -93,6 +93,7 @@ export default appSchema({
         { name: 'customer_id', type: 'string' as const, isOptional: true },
         { name: 'notes', type: 'string' as const, isOptional: true },
         { name: 'recorded_by', type: 'string' as const, isOptional: true },
+        { name: 'reference_id', type: 'string' as const, isOptional: true },
         { name: 'timestamp', type: 'number' as const },
         { name: 'created_at', type: 'number' as const },
         { name: 'updated_at', type: 'number' as const },

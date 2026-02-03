@@ -354,7 +354,7 @@ export default function RecordSaleScreen() {
         notes: '',
         isBusinessExpense: false,
       };
-      console.log(currentShop.id, txnData);
+      //console.log(currentShop.id, txnData);
 
       const paymentInputs = [];
       if (paymentMode === 'cash') {
@@ -370,16 +370,31 @@ export default function RecordSaleScreen() {
 
       await createTransactionWithPayments(txnData, paymentInputs);
 
-      // Record stock movements
+
+
+            // Record stock movements
       for (const item of cart) {
-        const product = products.find(p => p.id === item.productId)!;
-        await StockService.recordSale({
+        const product = products.find((p:Product) => p.id === item.productId)!;
+        
+        // Get current timestamp
+        const timestamp = Date.now();
+        
+        // Create a unique reference ID
+        const referenceId = `sale-${txnData.transactionNumber}-${timestamp}-${item.productId}`;
+        
+        await StockService.recordMovement({
           productId: item.productId,
           shopId: currentShop.id,
-          quantityInSellingUnits: item.quantity,
+          quantity: product.convertToBaseUnit(item.quantity, product.sellingUnit),
+          movementType: 'SALE',
+          //batchNumber: product.batchNumber, // From product if available
+          //expiryDate: product.expiryDate ? new Date(product.expiryDate).getTime() : undefined,
+          supplierId: undefined, // Not applicable for sales
           customerId: paymentMode === 'credit' ? selectedCustomer : undefined,
+          referenceId: referenceId,
+          notes: `Sale ${txnData.transactionNumber} - ${item.quantity} ${product.sellingUnit} of ${product.name}`,
           recordedBy: user.id,
-          notes: `Sale ${txnData.transactionNumber}`,
+          timestamp: timestamp
         });
       }
 

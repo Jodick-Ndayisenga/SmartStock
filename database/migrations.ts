@@ -3,6 +3,19 @@ import { schemaMigrations, createTable } from '@nozbe/watermelondb/Schema/migrat
 
 export default schemaMigrations({
   migrations: [
+
+    {
+      toVersion: 2,
+      steps:[
+        {
+          type: 'add_columns',
+          table: 'stock_movements',
+          columns: [
+            { name: 'reference_id', type: 'string', isOptional: true },
+          ]
+        }
+      ]
+    },
     // {
     //   toVersion: 2,
     //   steps: [

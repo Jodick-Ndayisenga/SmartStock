@@ -23,59 +23,63 @@ export class StockService {
   /**
    * Atomic stock update: creates movement + updates product.stockQuantity in one transaction
    */
-  static async recordMovement(input: StockMovementInput): Promise<void> {
-    const {
-      productId,
-      shopId,
-      quantity,
-      movementType,
-      batchNumber,
-      expiryDate,
-      supplierId,
-      customerId,
-      referenceId,
-      notes,
-      recordedBy,
-      timestamp = Date.now(),
-    } = input;
 
-    if (quantity <= 0) {
-      throw new Error('Quantity must be positive');
-    }
+  // CORRECTED recordMovement method
+static async recordMovement(input: StockMovementInput): Promise<void> {
+  const {
+    productId,
+    shopId,
+    quantity,
+    movementType,
+    batchNumber,
+    expiryDate,
+    supplierId,
+    customerId,
+    referenceId,
+    notes,
+    recordedBy,
+    timestamp = Date.now(),
+  } = input;
 
-    return await database.write(async () => {
-      // 🔑 1. Fetch product (will be updated in same transaction)
-      const product = await database.get<Product>('products').find(productId);
-
-      // 🔑 2. Create movement
-      await database.get<StockMovement>('stock_movements').create(movement => {
-        movement.productId = productId;
-        movement.shopId = shopId;
-        movement.quantity = quantity;
-        movement.movementType = movementType;
-        movement.batchNumber = batchNumber;
-        movement.expiryDate = expiryDate;
-        movement.supplierId = supplierId;
-        movement.customerId = customerId;
-        movement.referenceId = referenceId;
-        movement.notes = notes;
-        movement.recordedBy = recordedBy;
-        movement.timestamp = timestamp;
-      });
-
-      // 🔑 3. Atomically update stockQuantity
-      const stockDelta = movementType === 'IN' || movementType === 'TRANSFER_IN' 
-        ? quantity 
-        : -quantity;
-
-      await product.update(p => {
-        p.stockQuantity = Math.max(0, (p.stockQuantity || 0) + stockDelta);
-      });
-
-      // Optional: Log for debugging
-      console.log(`[StockService] ${movementType} ${quantity} units → ${product.name}. New stock: ${product.stockQuantity}`);
-    });
+  if (quantity <= 0) {
+    throw new Error('Quantity must be positive');
   }
+
+  return await database.write(async () => {
+    // 1. Fetch product
+    const product = await database.get<Product>('products').find(productId);
+
+    // 2. Create movement - Use proper WatermelonDB pattern
+    await database.get<StockMovement>('stock_movements').create(movement => {
+      // Required fields
+      (movement as any).productId = productId;
+      (movement as any).shopId = shopId;
+      (movement as any).quantity = quantity;
+      (movement as any).movementType = movementType;
+      (movement as any).timestamp = timestamp;
+      
+      // Optional fields - only set if they exist
+      if (batchNumber) (movement as any).batchNumber = batchNumber;
+      if (expiryDate) (movement as any).expiryDate = expiryDate;
+      if (supplierId) (movement as any).supplierId = supplierId;
+      if (customerId) (movement as any).customerId = customerId;
+      if (referenceId) (movement as any).referenceId = referenceId;
+      if (notes) (movement as any).notes = notes;
+      if (recordedBy) (movement as any).recordedBy = recordedBy;
+    });
+
+    // 3. Update stock quantity
+    const stockDelta = movementType === 'IN' || movementType === 'TRANSFER_IN' 
+      ? quantity 
+      : -quantity;
+
+    await product.update(p => {
+      p.stockQuantity = Math.max(0, (p.stockQuantity || 0) + stockDelta);
+    });
+
+    console.log(`[StockService] ${movementType} ${quantity} units → ${product.name}. New stock: ${product.stockQuantity}`);
+  });
+}
 
   /**
    * Helper: Record a sale (most common use case)
@@ -86,7 +90,7 @@ export class StockService {
     quantityInSellingUnits,
     customerId,
     recordedBy,
-    notes,
+    notes
   }: {
     productId: string;
     shopId: string;
