@@ -34,6 +34,36 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import PremiumHeader from '@/components/layout/PremiumHeader';
 
+interface TransactionRawRecord {
+  id: string;
+  shop_id: string;
+  transaction_date: number;
+  transaction_type: string;
+  transaction_number: string;
+  total_amount: number;
+  amount_paid: number;
+  balance_due: number;
+  payment_status: string;
+  recorded_by: string;
+  notes: string;
+  expense_category_id: string | null;
+  contact_id: string | null;
+  subtotal: number;
+  tax_amount: number;
+  discount_amount: number;
+  due_date: number | null;
+  is_business_expense: boolean;
+  created_at: number;
+  updated_at: number;
+  last_sync_at: number | null;
+  server_id: string | null;
+  _status: string;
+  _changed: string;
+  _tableStatus: string;
+  _lastSyncChanged: number;
+  // Add other fields as needed
+}
+
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // Account type configuration
@@ -198,10 +228,7 @@ const TransactionItem = ({
     }).start();
   };
 
-  //console.log(transaction?.transactionDate)
-
-
-
+  const raw = transaction._raw as unknown as TransactionRawRecord;;
   return (
     <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
       <TouchableOpacity
@@ -246,7 +273,7 @@ const TransactionItem = ({
           
           <View className="flex-row items-center">
             <Text className={`text-sm ${isDark ? 'text-dark-text-soft' : 'text-text-soft'}`}>
-              {new Date(transaction.transactionDate || Date.now()).toLocaleDateString()}
+              {new Date(raw.transaction_date || Date.now()).toLocaleDateString()}
             </Text>
             {transaction.categoryName && (
               <>
@@ -1017,6 +1044,11 @@ export default function AccountDetailsScreen() {
         .query(
           Q.where('shop_id', currentShop.id),
           Q.sortBy('transaction_date', Q.desc),
+          Q.or(
+            Q.where('source_account_id', accountId), // Transfers OUT of this account
+            Q.where('destination_account_id', accountId), // Transfers INTO this account
+            // For income/expense, we need to check AccountTransaction table
+          ),
           Q.take(20)
         )
         .fetch();
@@ -1030,7 +1062,7 @@ export default function AccountDetailsScreen() {
         const displayType = getTransactionDisplayType(tx.transactionType);
         const displayAmount = tx.totalAmount;
         const displayDescription = tx.notes || tx.transactionNumber || 'No description';
-        //console.log(tx.transactionDate)
+        //console.log(tx.transactionDate, Date.now());
 
         // Resolve category name if available
         let categoryName: string | undefined;
@@ -1105,8 +1137,8 @@ export default function AccountDetailsScreen() {
   const handleEditAccount = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     router.push({
-      pathname: '/(auth)/cash-account',
-      params: { editAccountId: account?.id }
+      pathname: '/(auth)/edit-account',
+      params: { accountId: account?.id }
     });
   };
 

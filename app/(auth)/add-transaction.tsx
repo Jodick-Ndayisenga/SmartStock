@@ -187,6 +187,7 @@ export default function AddTransactionScreen() {
 
   useEffect(() => {
     loadAccounts();
+    ///console.log('Params:', params);
     
     // Pre-fill from params if provided
     if (params.accountId) {
@@ -201,6 +202,8 @@ export default function AddTransactionScreen() {
         description: `Transaction for ${params.accountName}` 
       }));
     }
+
+    //console.log(formData)
   }, []);
 
   const loadAccounts = async () => {
@@ -270,6 +273,8 @@ export default function AddTransactionScreen() {
           t.transactionType = 'transfer';
           t.transactionNumber = `TRF-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
           t.contactId = '';
+          t.sourceAccountId = formData.accountId;
+          t.destinationAccountId = formData.targetAccountId;
           t.expenseCategoryId = '';
           t.subtotal = amount;
           t.taxAmount = 0;
@@ -362,10 +367,17 @@ export default function AddTransactionScreen() {
     // Optional: map category to real expense category ID (for now, skip)
     // Later: fetch category by name or create one
 
+    // For EXPENSE: money goes OUT OF the selected account 
+    const fromAccountId = isIncome ? undefined : formData.accountId;
+    const toAccountId = isIncome ? formData.accountId : undefined;
+    console.log('fromAccountId:', fromAccountId, 'toAccountId:', toAccountId);
+
     const txnData: TransactionData = {
       shopId: currentShop.id,
       transactionType: isIncome ? 'income' : 'expense',
       contactId: undefined, // add later if you include contact picker
+      fromAccountId: fromAccountId,
+      toAccountId: toAccountId,
       expenseCategoryId: undefined,
       subtotal: amount,
       taxAmount: 0,

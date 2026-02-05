@@ -10,7 +10,7 @@ const syncColumns = [
 ];
 
 export default appSchema({
-  version: 2,
+  version: 3,
   tables: [
     // ─── SHOP ───────────────────────────────────────
     tableSchema({
@@ -190,6 +190,8 @@ export default appSchema({
         { name: 'transaction_type', type: 'string' as const }, // 'sale', 'purchase', 'expense', 'income', 'transfer'
         { name: 'transaction_number', type: 'string' as const, isIndexed: true },
         { name: 'contact_id', type: 'string' as const, isOptional: true },
+        { name: 'source_account_id', type: 'string' as const, isOptional: true }, // For transfers
+        { name: 'destination_account_id', type: 'string' as const, isOptional: true }, // For transfers
         { name: 'expense_category_id', type: 'string' as const, isOptional: true }, // ← NEW: For categorizing expenses
         { name: 'subtotal', type: 'number' as const },
         { name: 'tax_amount', type: 'number' as const, isOptional: true },

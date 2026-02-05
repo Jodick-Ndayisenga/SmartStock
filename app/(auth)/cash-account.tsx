@@ -732,7 +732,10 @@ const AccountCard = ({
                 style={{ marginTop: 2 }}
               />
               <Text className="ml-2 text-sm text-text-soft dark:text-dark-text-soft flex-1">
-                {account.notes}
+                {account.notes.length > 70
+                  ? `${account.notes.substring(0, 70)}...`
+                  : account.notes
+                }
               </Text>
             </View>
           )}
@@ -910,10 +913,10 @@ export default function CashAccountsScreen() {
     <View className={`flex-1 ${isDark ? 'bg-dark-surface' : 'bg-surface-soft'}`}>
         <PremiumHeader title="Cash Accounts 💰" subtitle="Manage your financial accounts" showBackButton/>
       {/* Header */}
-      <View className="px-6 pt-8 pb-6">
+      <View className="px-6 pt-4">
 
         {/* Stats Cards */}
-        <View className="flex-row justify-between mb-6">
+        <View className="flex-row justify-between mb-4">
           <View className={`
             w-[48%] rounded-2xl p-5
             ${isDark ? 'bg-dark-surface-soft' : 'bg-surface'}

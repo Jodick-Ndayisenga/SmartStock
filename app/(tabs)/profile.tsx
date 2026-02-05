@@ -683,7 +683,7 @@ const UserInformation = ({
             <Ionicons name={`person-outline`} size={20} color="#0ea5e9" />
           </View>
 
-          <View className="flex-1 mt-2 pr-8"> {/* pr-8 leaves space for tick */}
+          <View className="flex-1 mt-2 pr-8">
             <ThemedText
               variant="default"
               size="base"

@@ -3,6 +3,7 @@ import { Relation } from '@nozbe/watermelondb';
 import { field, relation } from '@nozbe/watermelondb/decorators';
 import { BaseModel } from './BaseModel';
 import ExpenseCategory from "./ExpenseCategory"
+import { CashAccount } from './CashAccount';
 
 export default class Transaction extends BaseModel {
   static table = 'transactions';
@@ -23,6 +24,16 @@ export default class Transaction extends BaseModel {
   @field('transaction_number') transactionNumber!: string;
 
   @field('contact_id') contactId?: string;
+
+  // ─── For Transfers ──────────────────────────────────────────
+  @field('source_account_id') sourceAccountId?: string; // For transfers
+  @field('destination_account_id') destinationAccountId?: string; // For transfers
+  
+  @relation('cash_accounts', 'source_account_id')
+  sourceAccount?: Relation<CashAccount>;
+  
+  @relation('cash_accounts', 'destination_account_id')
+  destinationAccount?: Relation<CashAccount>;
 
   // ─── Expense / Category ─────────────────────────────────────
   @field('expense_category_id') expenseCategoryId?: string;

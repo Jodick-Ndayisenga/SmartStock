@@ -537,9 +537,9 @@ export default function ShopManager() {
               })}
               variant="default"
               size="sm"
-              icon='add'
+              icon='settings-outline'
             >
-              add account 
+              Accounts
             </Button>
           </View>
         </View>

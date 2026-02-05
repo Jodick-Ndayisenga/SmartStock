@@ -156,6 +156,8 @@ export type TransactionData = {
   shopId: string;
   transactionType: 'sale' | 'purchase' | 'expense' | 'income' | 'transfer';
   contactId?: string;
+  fromAccountId?: string;
+  toAccountId?: string;
   expenseCategoryId?: string;
   subtotal: number;
   taxAmount?: number;
@@ -207,6 +209,8 @@ export async function createTransactionWithPayments(
       t.transactionType = txnData.transactionType;
       t.transactionNumber = txnData.transactionNumber ?? `TXN-${Date.now()}-${uuid.v4().slice(0, 6).toUpperCase()}`;
       t.contactId = txnData.contactId ?? '';
+      t.sourceAccountId = txnData.fromAccountId ?? '';
+      t.destinationAccountId = txnData.toAccountId ?? '';
       t.expenseCategoryId = txnData.expenseCategoryId ?? '';
       t.subtotal = txnData.subtotal;
       t.taxAmount = txnData.taxAmount ?? 0;
@@ -221,7 +225,6 @@ export async function createTransactionWithPayments(
       t.notes = txnData.notes ?? '';
       t.isBusinessExpense = txnData.isBusinessExpense ?? false;
       t.isRecurring = false;
-
     });
 
     // Process each payment

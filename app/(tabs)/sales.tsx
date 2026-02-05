@@ -336,12 +336,15 @@ export default function RecordSaleScreen() {
       return;
     }
 
+    const defaultAccountId = await getDefaultCashAccount(currentShop.id);
+
     try {
       setLoading(true);
       const txnData: TransactionData = {
         shopId: currentShop.id,
         transactionType: 'sale',
         contactId: paymentMode === 'credit' ? selectedCustomer : undefined,
+        toAccountId: defaultAccountId?.id || '',
         subtotal: totalAmount,
         taxAmount: 0,
         discountAmount: 0,
