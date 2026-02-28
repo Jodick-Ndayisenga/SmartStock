@@ -24,7 +24,7 @@ type ThemedTextVariant =
   | 'quote';
 
 // Extended text sizes
-type ThemedTextSize = 'xs' | 'sm' | 'base' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl';
+type ThemedTextSize = 'xs' | 'sm' | 'base' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl';
 
 // Text weights
 type ThemedTextWeight = 'regular' | 'medium' | 'semibold' | 'bold' | 'black';
@@ -92,6 +92,7 @@ export const ThemedText = React.forwardRef<Text, ThemedTextProps>(
       xs: 'text-xs',
       sm: 'text-sm',
       base: 'text-base',
+      md: 'text-md',
       lg: 'text-lg',
       xl: 'text-xl',
       '2xl': 'text-2xl',

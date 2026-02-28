@@ -24,7 +24,8 @@
     "monday": "Jumatatu",
     "sunday": "Jumapili",
     "getStarted": "Anza",
-    "creating": "Kuunda..."
+    "creating": "Kuunda...",
+    "customer": "Mteja"
   },
   "auth": {
     "welcome": "Karibu",
@@ -138,7 +139,12 @@
     "walkInCustomer": "Mteja Ajiye",
     "items": "vitu",
     "completed": "IMEMALIZIKA",
-    "refunded": "IMERUDISHWA"
+    "refunded": "IMERUDISHWA",
+    "sale_completed": "✅ Uuzaji Umekomeshwa!",
+    "credit_sale_recorded": "✅ Uuzaji wa Kredi Umeandikwa!",
+    "total_amount": "Jumla: ₣{{amount}}",
+    "down_payment_made": "{{customerName}} alilipa ₣{{downPayment}} kama malipo ya awali. Salio linalobaki: ₣{{balance}}",
+    "full_credit_owed": "{{customerName}} sasa anakudai ₣{{amount}}"
   },
   "profile": {
     "title": "Wasifu",

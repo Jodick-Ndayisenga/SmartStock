@@ -30,7 +30,7 @@ import { FAB } from '@/components/ui/Button';
 // Models
 import { Product } from '@/database/models/Product';
 import { StockMovement } from '@/database/models/StockMovement';
-import { Shop } from '@/database/models/Shop';
+import { useAuth } from '@/context/AuthContext';
 
 interface ProductStock {
   id: string;
@@ -73,7 +73,6 @@ export default function StockScreen() {
   
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [currentShop, setCurrentShop] = useState<Shop | null>(null);
   const [products, setProducts] = useState<ProductStock[]>([]);
   const [summary, setSummary] = useState<StockSummary>({
     totalProducts: 0,
@@ -90,6 +89,7 @@ export default function StockScreen() {
   const [sortBy, setSortBy] = useState<SortBy>('name');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
+  const { currentShop } = useAuth();
 
   useEffect(() => {
     loadStockData();
@@ -98,13 +98,9 @@ export default function StockScreen() {
   const loadStockData = async () => {
     try {
       setLoading(true);
-      
-      const shops = await database.get<Shop>('shops').query().fetch();
-      const shop = shops[0] || null;
-      setCurrentShop(shop);
 
-      if (shop) {
-        const { stockData, summaryData } = await getStockData(shop.id);
+      if (currentShop) {
+        const { stockData, summaryData } = await getStockData(currentShop.id);
         setProducts(stockData);
         setSummary(summaryData);
       }
@@ -772,7 +768,7 @@ export default function StockScreen() {
       <FAB
         icon="add"
         position="bottom-right"
-        onPress={() => router.push('/edit-product/new')}
+        onPress={() => router.push('/add-product')}
       >
         Add Product
       </FAB>

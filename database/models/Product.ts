@@ -7,7 +7,7 @@ import { Shop } from './Shop';
 import { StockMovement } from './StockMovement';
 
 // Unit types for Burundi market
-export type UnitType = 'piece' | 'weight' | 'volume' | 'length' | 'pack';
+export type UnitType = 'piece' | 'weight' | 'volume' | 'length' | 'pack' | 'unite';
 export type WeightUnit = 'kg' | 'g' | 'mg';
 export type VolumeUnit = 'l' | 'ml' | 'cl';
 export type LengthUnit = 'm' | 'cm' | 'mm';

@@ -520,7 +520,7 @@ export default function ShopManager() {
           </View>
 
           <View className="flex-row items-center gap-2">
-            <Badge 
+            {/* <Badge 
               variant={
                 shop.userRole === 'owner' ? 'success' : 
                 shop.userRole === 'manager' ? 'warning' : 'default'
@@ -528,7 +528,15 @@ export default function ShopManager() {
               size="sm"
             >
               {shop.userRole}
-            </Badge>
+            </Badge> */}
+            <Button
+              onPress={() => router.push(`/shops/${shop.id}/debtors`)}
+              variant="outline"
+              size="sm"
+              icon='people'
+            >
+              debtors
+            </Button>
             
             <Button
               onPress={() => router.push({

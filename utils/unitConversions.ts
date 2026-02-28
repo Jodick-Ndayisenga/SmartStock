@@ -1,329 +1,391 @@
 // utils/unitConversions.ts
-
-export type VolumeUnit = 'l' | 'ml' | 'cl' | 'gal' | 'fl oz';
-export type WeightUnit = 'kg' | 'g' | 'mg' | 'lb' | 'oz';
-export type LengthUnit = 'm' | 'cm' | 'mm' | 'ft' | 'in';
-export type PieceUnit = 'piece' | 'pack' | 'box' | 'case' | 'carton'|'bottle';
-
-export type AnyUnit = VolumeUnit | WeightUnit | LengthUnit | PieceUnit;
+import { UNIT_OPTIONS } from '@/constants/unitOptions';
 
 // ============================================================================
-// VOLUME CONVERSIONS
+// TYPES
 // ============================================================================
 
-/**
- * Convert volume between different units
- */
-export function convertVolume(
-  fromUnit: VolumeUnit, 
-  toUnit: VolumeUnit, 
-  value: number
-): number {
-  if (fromUnit === toUnit) return value;
+export type UnitType = 'weight' | 'volume' | 'length' | 'piece' | 'pack';
 
-  const conversionFormulas: Record<string, (val: number) => number> = {
-    // Liters to others
-    'l→ml': (val) => val * 1000,
-    'l→cl': (val) => val * 100,
-    'l→gal': (val) => val * 0.264172,
-    'l→fl oz': (val) => val * 33.814,
-    
-    // Milliliters to others
-    'ml→l': (val) => val / 1000,
-    'ml→cl': (val) => val / 10,
-    'ml→gal': (val) => val * 0.000264172,
-    'ml→fl oz': (val) => val * 0.033814,
-    
-    // Centiliters to others
-    'cl→l': (val) => val / 100,
-    'cl→ml': (val) => val * 10,
-    'cl→gal': (val) => val * 0.00264172,
-    'cl→fl oz': (val) => val * 0.33814,
-    
-    // Gallons to others
-    'gal→l': (val) => val * 3.78541,
-    'gal→ml': (val) => val * 3785.41,
-    'gal→cl': (val) => val * 378.541,
-    'gal→fl oz': (val) => val * 128,
-    
-    // Fluid ounces to others
-    'fl oz→l': (val) => val * 0.0295735,
-    'fl oz→ml': (val) => val * 29.5735,
-    'fl oz→cl': (val) => val * 2.95735,
-    'fl oz→gal': (val) => val * 0.0078125,
+export type UnitInfo = {
+  value: string;
+  label: string;
+  base: number;
+  category: string;
+  description: string;
+  unitType: UnitType;
+};
+
+export interface ConversionResult {
+  success: boolean;
+  value: number;
+  fromUnit: string;
+  toUnit: string;
+  originalValue: number;
+  conversionFactor: number;
+  error?: string;
+  details?: {
+    fromUnitInfo?: UnitInfo;
+    toUnitInfo?: UnitInfo;
+    path?: string[];
   };
+}
 
-  const conversionKey = `${fromUnit}→${toUnit}`;
-  const formula = conversionFormulas[conversionKey];
-
-  if (!formula) {
-    throw new Error(`Unsupported volume conversion: ${fromUnit} to ${toUnit}`);
-  }
-
-  return formula(value);
+export interface ConversionCheck {
+  possible: boolean;
+  reason?: string;
+  suggestion?: string;
+  conversionFactor?: number;
 }
 
 // ============================================================================
-// WEIGHT CONVERSIONS
+// CONVERSION ENGINE
 // ============================================================================
 
-/**
- * Convert weight between different units
- */
-export function convertWeight(
-  fromUnit: WeightUnit, 
-  toUnit: WeightUnit, 
-  value: number
-): number {
-  if (fromUnit === toUnit) return value;
+class UnitConversionEngine {
+  private static instance: UnitConversionEngine;
+  private unitCache: Map<string, UnitInfo> = new Map();
+  private conversionCache: Map<string, number> = new Map();
 
-  const conversionFormulas: Record<string, (val: number) => number> = {
-    // Kilograms to others
-    'kg→g': (val) => val * 1000,
-    'kg→mg': (val) => val * 1000000,
-    'kg→lb': (val) => val * 2.20462,
-    'kg→oz': (val) => val * 35.274,
-    
-    // Grams to others
-    'g→kg': (val) => val / 1000,
-    'g→mg': (val) => val * 1000,
-    'g→lb': (val) => val * 0.00220462,
-    'g→oz': (val) => val * 0.035274,
-    
-    // Milligrams to others
-    'mg→kg': (val) => val / 1000000,
-    'mg→g': (val) => val / 1000,
-    'mg→lb': (val) => val * 0.00000220462,
-    'mg→oz': (val) => val * 0.000035274,
-    
-    // Pounds to others
-    'lb→kg': (val) => val * 0.453592,
-    'lb→g': (val) => val * 453.592,
-    'lb→mg': (val) => val * 453592,
-    'lb→oz': (val) => val * 16,
-    
-    // Ounces to others
-    'oz→kg': (val) => val * 0.0283495,
-    'oz→g': (val) => val * 28.3495,
-    'oz→mg': (val) => val * 28349.5,
-    'oz→lb': (val) => val * 0.0625,
-  };
-
-  const conversionKey = `${fromUnit}→${toUnit}`;
-  const formula = conversionFormulas[conversionKey];
-
-  if (!formula) {
-    throw new Error(`Unsupported weight conversion: ${fromUnit} to ${toUnit}`);
+  private constructor() {
+    this.initializeCache();
   }
 
-  return formula(value);
-}
-
-// ============================================================================
-// LENGTH CONVERSIONS
-// ============================================================================
-
-/**
- * Convert length between different units
- */
-export function convertLength(
-  fromUnit: LengthUnit, 
-  toUnit: LengthUnit, 
-  value: number
-): number {
-  if (fromUnit === toUnit) return value;
-
-  const conversionFormulas: Record<string, (val: number) => number> = {
-    // Meters to others
-    'm→cm': (val) => val * 100,
-    'm→mm': (val) => val * 1000,
-    'm→ft': (val) => val * 3.28084,
-    'm→in': (val) => val * 39.3701,
-    
-    // Centimeters to others
-    'cm→m': (val) => val / 100,
-    'cm→mm': (val) => val * 10,
-    'cm→ft': (val) => val * 0.0328084,
-    'cm→in': (val) => val * 0.393701,
-    
-    // Millimeters to others
-    'mm→m': (val) => val / 1000,
-    'mm→cm': (val) => val / 10,
-    'mm→ft': (val) => val * 0.00328084,
-    'mm→in': (val) => val * 0.0393701,
-    
-    // Feet to others
-    'ft→m': (val) => val * 0.3048,
-    'ft→cm': (val) => val * 30.48,
-    'ft→mm': (val) => val * 304.8,
-    'ft→in': (val) => val * 12,
-    
-    // Inches to others
-    'in→m': (val) => val * 0.0254,
-    'in→cm': (val) => val * 2.54,
-    'in→mm': (val) => val * 25.4,
-    'in→ft': (val) => val * 0.0833333,
-  };
-
-  const conversionKey = `${fromUnit}→${toUnit}`;
-  const formula = conversionFormulas[conversionKey];
-
-  if (!formula) {
-    throw new Error(`Unsupported length conversion: ${fromUnit} to ${toUnit}`);
+  static getInstance(): UnitConversionEngine {
+    if (!UnitConversionEngine.instance) {
+      UnitConversionEngine.instance = new UnitConversionEngine();
+    }
+    return UnitConversionEngine.instance;
   }
 
-  return formula(value);
-}
+  private initializeCache() {
+    // Cache all units for faster lookup
+    Object.values(UNIT_OPTIONS).forEach(unitArray => {
+      unitArray.forEach(unit => {
+        this.unitCache.set(unit.value, unit);
+      });
+    });
+  }
 
-// ============================================================================
-// PIECE/PACK CONVERSIONS
-// ============================================================================
+  /**
+   * Get unit info
+   */
+  getUnitInfo(unit: string): UnitInfo | undefined {
+    return this.unitCache.get(unit);
+  }
 
-/**
- * Convert between piece/pack units (custom conversion factors)
- * Note: These are business-specific and may need customization
- */
-export function convertPiece(
-  fromUnit: PieceUnit, 
-  toUnit: PieceUnit, 
-  value: number,
-  customConversionFactors?: Record<string, number>
-): number {
-  if (fromUnit === toUnit) return value;
-
-  // Default conversion factors (can be overridden)
-  const defaultConversionFactors: Record<string, number> = {
-    'piece→pack': 1/12,      // 12 pieces = 1 pack
-    'bottle→case':1/12,      // 12 bottles = 1 case
-    'piece→box': 1/24,       // 24 pieces = 1 box
-    'piece→case': 1/48,      // 48 pieces = 1 case
-    'piece→carton': 1/96,    // 96 pieces = 1 carton
+  /**
+   * Check if two units are compatible (same type)
+   */
+  areUnitsCompatible(unit1: string, unit2: string): boolean {
+    const info1 = this.getUnitInfo(unit1);
+    const info2 = this.getUnitInfo(unit2);
     
-    'pack→piece': 12,        // 1 pack = 12 pieces
-    'pack→box': 1/2,         // 2 packs = 1 box
-    'pack→case': 1/4,        // 4 packs = 1 case
-    'pack→carton': 1/8,      // 8 packs = 1 carton
-    'case→bottle':12,        // 1 case = 12 bottles
+    if (!info1 || !info2) return false;
     
-    'box→piece': 24,         // 1 box = 24 pieces
-    'box→pack': 2,           // 1 box = 2 packs
-    'box→case': 1/2,         // 2 boxes = 1 case
-    'box→carton': 1/4,       // 4 boxes = 1 carton
+    // Same unit type OR both are piece/pack (they can be mixed)
+    if (info1.unitType === info2.unitType) return true;
+    if (info1.unitType === 'piece' && info2.unitType === 'pack') return true;
+    if (info1.unitType === 'pack' && info2.unitType === 'piece') return true;
     
-    'case→piece': 48,        // 1 case = 48 pieces
-    'case→pack': 4,          // 1 case = 4 packs
-    'case→box': 2,           // 1 case = 2 boxes
-    'case→carton': 1/2,      // 2 cases = 1 carton
-    
-    'carton→piece': 96,      // 1 carton = 96 pieces
-    'carton→pack': 8,        // 1 carton = 8 packs
-    'carton→box': 4,         // 1 carton = 4 boxes
-    'carton→case': 2,        // 1 carton = 2 cases
-  };
-
-  // Use custom factors if provided, otherwise use defaults
-  const factors = { ...defaultConversionFactors, ...customConversionFactors };
-  
-  const conversionKey = `${fromUnit}→${toUnit}`;
-  const conversionFactor = factors[conversionKey];
-
-  if (conversionFactor === undefined) {
-    throw new Error(`Unsupported piece conversion: ${fromUnit} to ${toUnit}`);
-  }
-
-  return value * conversionFactor;
-}
-
-// ============================================================================
-// UNIVERSAL CONVERSION FUNCTION
-// ============================================================================
-
-/**
- * Universal conversion function that detects unit type and applies correct conversion
- */
-export function convertUnits(
-  fromUnit: AnyUnit, 
-  toUnit: AnyUnit, 
-  value: number,
-  customPieceFactors?: Record<string, number>
-): number {
-  if (fromUnit === toUnit) return value;
-
-  // Check if units are of the same type
-  const volumeUnits: VolumeUnit[] = ['l', 'ml', 'cl', 'gal', 'fl oz'];
-  const weightUnits: WeightUnit[] = ['kg', 'g', 'mg', 'lb', 'oz'];
-  const lengthUnits: LengthUnit[] = ['m', 'cm', 'mm', 'ft', 'in'];
-  const pieceUnits: PieceUnit[] = ['piece','pack', 'box', 'case', 'carton', 'bottle'];
-
-  // Volume conversions
-  if (volumeUnits.includes(fromUnit as VolumeUnit) && volumeUnits.includes(toUnit as VolumeUnit)) {
-    return convertVolume(fromUnit as VolumeUnit, toUnit as VolumeUnit, value);
-  }
-  
-  // Weight conversions
-  if (weightUnits.includes(fromUnit as WeightUnit) && weightUnits.includes(toUnit as WeightUnit)) {
-    return convertWeight(fromUnit as WeightUnit, toUnit as WeightUnit, value);
-  }
-  
-  // Length conversions
-  if (lengthUnits.includes(fromUnit as LengthUnit) && lengthUnits.includes(toUnit as LengthUnit)) {
-    return convertLength(fromUnit as LengthUnit, toUnit as LengthUnit, value);
-  }
-  
-  // Piece conversions
-  if (pieceUnits.includes(fromUnit as PieceUnit) && pieceUnits.includes(toUnit as PieceUnit)) {
-    return convertPiece(fromUnit as PieceUnit, toUnit as PieceUnit, value, customPieceFactors);
-  }
-
-  throw new Error(`Cannot convert between different unit types: ${fromUnit} to ${toUnit}`);
-}
-
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
-
-/**
- * Get conversion factor between two units
- */
-export function getConversionFactor(
-  fromUnit: AnyUnit, 
-  toUnit: AnyUnit,
-  customPieceFactors?: Record<string, number>
-): number {
-  if (fromUnit === toUnit) return 1;
-  return convertUnits(fromUnit, toUnit, 1, customPieceFactors);
-}
-
-/**
- * Check if conversion between two units is supported
- */
-export function isConversionSupported(
-  fromUnit: AnyUnit, 
-  toUnit: AnyUnit
-): boolean {
-  if (fromUnit === toUnit) return true;
-
-  try {
-    convertUnits(fromUnit, toUnit, 1);
-    return true;
-  } catch {
     return false;
   }
+
+  /**
+   * Get conversion factor between two units
+   */
+  getConversionFactor(fromUnit: string, toUnit: string): number | null {
+    // Check cache
+    const cacheKey = `${fromUnit}:${toUnit}`;
+    if (this.conversionCache.has(cacheKey)) {
+      return this.conversionCache.get(cacheKey)!;
+    }
+
+    const fromInfo = this.getUnitInfo(fromUnit);
+    const toInfo = this.getUnitInfo(toUnit);
+
+    if (!fromInfo || !toInfo) return null;
+
+    // Check compatibility
+    if (!this.areUnitsCompatible(fromUnit, toUnit)) return null;
+
+    // Direct conversion using base units
+    // All units have a base (kg, l, m, piece)
+    // So conversion is: (value * from.base) / to.base
+    const factor = fromInfo.base / toInfo.base;
+    
+    // Cache the result
+    this.conversionCache.set(cacheKey, factor);
+    this.conversionCache.set(`${toUnit}:${fromUnit}`, 1 / factor);
+    
+    return factor;
+  }
+
+  /**
+   * Convert between units with full safety
+   */
+  convert(
+    fromUnit: string,
+    toUnit: string,
+    value: number
+  ): ConversionResult {
+    // Default result
+    const defaultResult: ConversionResult = {
+      success: true,
+      value,
+      fromUnit,
+      toUnit,
+      originalValue: value,
+      conversionFactor: 1,
+    };
+
+    // Guard clauses
+    if (!fromUnit || !toUnit) {
+      return {
+        ...defaultResult,
+        success: false,
+        error: 'Missing unit information',
+      };
+    }
+
+    if (fromUnit === toUnit) {
+      return defaultResult;
+    }
+
+    if (typeof value !== 'number' || isNaN(value)) {
+      return {
+        ...defaultResult,
+        success: false,
+        error: 'Invalid value for conversion',
+      };
+    }
+
+    if (value === 0) {
+      return defaultResult;
+    }
+
+    const fromInfo = this.getUnitInfo(fromUnit);
+    const toInfo = this.getUnitInfo(toUnit);
+
+    if (!fromInfo || !toInfo) {
+      return {
+        ...defaultResult,
+        success: false,
+        error: `Unknown unit: ${!fromInfo ? fromUnit : toUnit}`,
+      };
+    }
+
+    // Check compatibility
+    if (!this.areUnitsCompatible(fromUnit, toUnit)) {
+      return {
+        ...defaultResult,
+        success: false,
+        error: `Incompatible units: ${fromInfo.unitType} vs ${toInfo.unitType}`,
+        details: {
+          fromUnitInfo: fromInfo,
+          toUnitInfo: toInfo,
+        },
+      };
+    }
+
+    // Perform conversion
+    try {
+      const conversionFactor = fromInfo.base / toInfo.base;
+      const convertedValue = value * conversionFactor;
+
+      return {
+        success: true,
+        value: convertedValue,
+        fromUnit,
+        toUnit,
+        originalValue: value,
+        conversionFactor,
+        details: {
+          fromUnitInfo: fromInfo,
+          toUnitInfo: toInfo,
+          path: [`1 ${fromUnit} = ${fromInfo.base} base units`, 
+                 `1 ${toUnit} = ${toInfo.base} base units`,
+                 `Conversion factor: ${conversionFactor.toFixed(4)}`],
+        },
+      };
+    } catch (error) {
+      return {
+        ...defaultResult,
+        success: false,
+        error: error instanceof Error ? error.message : 'Conversion failed',
+      };
+    }
+  }
+
+  /**
+   * Check if conversion is possible
+   */
+  canConvert(
+    fromUnit: string,
+    toUnit: string
+  ): ConversionCheck {
+    if (!fromUnit || !toUnit) {
+      return { 
+        possible: false, 
+        reason: 'Missing unit information',
+        suggestion: 'Please select both units',
+      };
+    }
+
+    if (fromUnit === toUnit) {
+      return { 
+        possible: true,
+        conversionFactor: 1,
+      };
+    }
+
+    const fromInfo = this.getUnitInfo(fromUnit);
+    const toInfo = this.getUnitInfo(toUnit);
+
+    if (!fromInfo || !toInfo) {
+      const unknownUnit = !fromInfo ? fromUnit : toUnit;
+      return {
+        possible: false,
+        reason: `Unknown unit: ${unknownUnit}`,
+        suggestion: 'Please select a valid unit',
+      };
+    }
+
+    if (!this.areUnitsCompatible(fromUnit, toUnit)) {
+      return {
+        possible: false,
+        reason: `Cannot convert ${fromInfo.unitType} to ${toInfo.unitType}`,
+        suggestion: `Use units of the same type: ${fromInfo.unitType}`,
+      };
+    }
+
+    const factor = fromInfo.base / toInfo.base;
+    
+    return {
+      possible: true,
+      conversionFactor: factor,
+    };
+  }
+
+  /**
+   * Get all units by type
+   */
+  getUnitsByType(type: UnitType): UnitInfo[] {
+    return Array.from(this.unitCache.values())
+      .filter(unit => unit.unitType === type);
+  }
+
+  /**
+   * Get units by category within a type
+   */
+  getUnitsByCategory(type: UnitType, category: string): UnitInfo[] {
+    return this.getUnitsByType(type)
+      .filter(unit => unit.category === category);
+  }
+
+  /**
+   * Get all categories for a unit type
+   */
+  getCategories(type: UnitType): string[] {
+    const categories = new Set(
+      this.getUnitsByType(type).map(unit => unit.category)
+    );
+    return Array.from(categories);
+  }
+
+  /**
+   * Search units
+   */
+  searchUnits(query: string): UnitInfo[] {
+    const searchTerm = query.toLowerCase();
+    return Array.from(this.unitCache.values())
+      .filter(unit => 
+        unit.label.toLowerCase().includes(searchTerm) ||
+        unit.value.toLowerCase().includes(searchTerm) ||
+        unit.description.toLowerCase().includes(searchTerm)
+      );
+  }
+
+  /**
+   * Get suggested units for a product type
+   */
+  getSuggestedUnits(productCategory: string): UnitInfo[] {
+    const suggestions: Record<string, UnitType[]> = {
+      'food': ['weight', 'piece'],
+      'drinks': ['volume', 'piece'],
+      'clothing': ['piece', 'pack'],
+      'electronics': ['piece'],
+      'household': ['piece', 'pack'],
+      'health': ['piece', 'pack'],
+      'other': ['piece', 'weight', 'volume', 'length'],
+    };
+
+    const types = suggestions[productCategory] || ['piece'];
+    return types.flatMap(type => this.getUnitsByType(type));
+  }
+
+  /**
+   * Format conversion result
+   */
+  formatConversion(result: ConversionResult, decimals: number = 2): string {
+    if (!result.success) {
+      return `${result.originalValue} ${result.fromUnit} → Error: ${result.error}`;
+    }
+
+    const fromLabel = this.getUnitInfo(result.fromUnit)?.label || result.fromUnit;
+    const toLabel = this.getUnitInfo(result.toUnit)?.label || result.toUnit;
+
+    return `${result.originalValue.toFixed(decimals)} ${fromLabel} = ${result.value.toFixed(decimals)} ${toLabel}`;
+  }
+
+  /**
+   * Clear cache (useful for testing)
+   */
+  clearCache() {
+    this.conversionCache.clear();
+  }
 }
 
-/**
- * Detect the type of unit
- */
-export function getUnitType(unit: AnyUnit): 'volume' | 'weight' | 'length' | 'piece' {
-  const volumeUnits: VolumeUnit[] = ['l', 'ml', 'cl', 'gal', 'fl oz'];
-  const weightUnits: WeightUnit[] = ['kg', 'g', 'mg', 'lb', 'oz'];
-  const lengthUnits: LengthUnit[] = ['m', 'cm', 'mm', 'ft', 'in'];
-  const pieceUnits: PieceUnit[] = ['piece', 'pack', 'box', 'case', 'carton'];
+// ============================================================================
+// EXPORT SINGLETON INSTANCE
+// ============================================================================
 
-  if (volumeUnits.includes(unit as VolumeUnit)) return 'volume';
-  if (weightUnits.includes(unit as WeightUnit)) return 'weight';
-  if (lengthUnits.includes(unit as LengthUnit)) return 'length';
-  if (pieceUnits.includes(unit as PieceUnit)) return 'piece';
-  
-  throw new Error(`Unknown unit type: ${unit}`);
-}
+export const unitConverter = UnitConversionEngine.getInstance();
+
+// ============================================================================
+// CONVENIENCE FUNCTIONS
+// ============================================================================
+
+export const convertUnits = (
+  fromUnit: string,
+  toUnit: string,
+  value: number
+): ConversionResult => unitConverter.convert(fromUnit, toUnit, value);
+
+export const canConvert = (
+  fromUnit: string,
+  toUnit: string
+): ConversionCheck => unitConverter.canConvert(fromUnit, toUnit);
+
+export const getUnitInfo = (unit: string): UnitInfo | undefined => 
+  unitConverter.getUnitInfo(unit);
+
+export const getUnitsByType = (type: UnitType): UnitInfo[] =>
+  unitConverter.getUnitsByType(type);
+
+export const getUnitsByCategory = (type: UnitType, category: string): UnitInfo[] =>
+  unitConverter.getUnitsByCategory(type, category);
+
+export const getCategories = (type: UnitType): string[] =>
+  unitConverter.getCategories(type);
+
+export const searchUnits = (query: string): UnitInfo[] =>
+  unitConverter.searchUnits(query);
+
+export const getSuggestedUnits = (productCategory: string): UnitInfo[] =>
+  unitConverter.getSuggestedUnits(productCategory);
+
+export const formatConversion = (
+  result: ConversionResult,
+  decimals: number = 2
+): string => unitConverter.formatConversion(result, decimals);

@@ -33,6 +33,7 @@ import * as Print from 'expo-print';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import PremiumHeader from '@/components/layout/PremiumHeader';
+import { tr } from 'zod/v4/locales';
 
 interface TransactionRawRecord {
   id: string;
@@ -45,6 +46,8 @@ interface TransactionRawRecord {
   balance_due: number;
   payment_status: string;
   recorded_by: string;
+  destination_account_id: string | null;
+  source_account_id: string | null;
   notes: string;
   expense_category_id: string | null;
   contact_id: string | null;
@@ -206,9 +209,11 @@ const QuickActionButton = ({
 // Transaction Item Component
 const TransactionItem = ({ 
   transaction,
+  accountId,
   isDark 
 }: { 
   transaction: EnhancedTransaction;
+  accountId?: string;
   isDark: boolean;
 }) => {
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -228,7 +233,52 @@ const TransactionItem = ({
     }).start();
   };
 
-  const raw = transaction._raw as unknown as TransactionRawRecord;;
+  const raw = transaction._raw as unknown as TransactionRawRecord;
+
+  // Helper function to determine sign and color for transaction amount
+const getTransactionDisplayInfo = (transaction: any, currentAccountId = accountId) => {
+  let sign = '';
+  let colorClass = '';
+  
+  switch (transaction.displayType) {
+    case 'income':
+      sign = '+';
+      colorClass = 'text-success';
+      break;
+    case 'expense':
+      sign = '-';
+      colorClass = 'text-error';
+      break;
+    case 'transfer':
+      // If current account is the source (sending money out)
+      if (raw.source_account_id === currentAccountId) {
+        sign = '-';
+        colorClass = 'text-brand';
+      } 
+      // If current account is the destination (receiving money in)
+      else if (raw.destination_account_id === currentAccountId) {
+        sign = '+';
+        colorClass = 'text-brand';
+      }
+      // For other cases (like viewing all transfers)
+      else {
+        sign = ''; // No sign for neutral view
+        colorClass = isDark ? 'text-dark-text' : 'text-text';
+      }
+      break;
+    default:
+      sign = '';
+      colorClass = isDark ? 'text-dark-text' : 'text-text';
+  }
+  
+  return { sign, colorClass };
+};
+
+  
+  //console.log(raw)
+
+  const { sign, colorClass } = getTransactionDisplayInfo(transaction);
+  //console.log(`Transaction ${transaction.id} - Type: ${transaction.displayType}, Sign: ${sign}, ColorClass: ${colorClass} - sourceAccountId: ${transaction.sourceAccountId}, destinationAccountId: ${transaction.destinationAccountId}, currentAccountId: ${accountId}`);
   return (
     <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
       <TouchableOpacity
@@ -259,15 +309,8 @@ const TransactionItem = ({
                 ? `${transaction.displayDescription.slice(0, 25)}...`
                 : transaction.displayDescription}
             </Text>
-            <Text className={`text-base font-bold ${
-              transaction.displayType === 'income' 
-                ? 'text-success' 
-                : transaction.displayType === 'expense'
-                ? 'text-error'
-                : isDark ? 'text-dark-text' : 'text-text'
-            }`}>
-              {transaction.displayType === 'income' ? '+' : '-'}
-              {transaction.displayAmount.toLocaleString()}
+            <Text className={`text-base font-bold ${colorClass}`}>
+              {sign} {transaction.displayAmount.toLocaleString()}
             </Text>
           </View>
           
@@ -1142,10 +1185,7 @@ export default function AccountDetailsScreen() {
     });
   };
 
-  const handleExport = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setShowExportModal(true);
-  };
+
 
   const handleShare = async () => {
     try {
@@ -1294,7 +1334,7 @@ export default function AccountDetailsScreen() {
             {transactions.length > 0 ? (
               <View>
                 {transactions.map(transaction => (
-                  <TransactionItem key={transaction.id} transaction={transaction} isDark={isDark} />
+                  <TransactionItem key={transaction.id} transaction={transaction} accountId={params.accountId} isDark={isDark} />
                 ))}
               </View>
             ) : (

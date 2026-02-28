@@ -25,7 +25,7 @@ type ButtonVariant =
 type ButtonSize = 'sm' | 'default' | 'lg' | 'xl';
 
 // Button Props
-interface ButtonProps extends TouchableOpacityProps {
+export interface ButtonProps extends TouchableOpacityProps {
   variant?: ButtonVariant;
   size?: ButtonSize;
   loading?: boolean;

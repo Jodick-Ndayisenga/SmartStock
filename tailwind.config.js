@@ -47,6 +47,12 @@ module.exports = {
         'price-up': '#22c55e',
         'price-down': '#ef4444',
 
+        // for 
+        info: '#3b82f6',
+        'info-soft': '#dbeafe',
+        'dark-info': '#60a5fa',
+        'dark-info-soft': '#1e3a5c',
+
         // 🌙 Dark Mode Colors
         dark: {
           surface: '#0f172a',
@@ -83,6 +89,12 @@ module.exports = {
           'stock-out': '#f87171',
           'price-up': '#4ade80',
           'price-down': '#f87171',
+
+          // for 
+        info: '#3b82f6',
+        'info-soft': '#dbeafe',
+        'dark-info': '#60a5fa',
+        'dark-info-soft': '#1e3a5c',
         }
       },
       borderRadius: {

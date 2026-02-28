@@ -1,9 +1,10 @@
 // models/Transaction.ts
-import { Relation } from '@nozbe/watermelondb';
-import { field, relation } from '@nozbe/watermelondb/decorators';
+import { Query, Relation } from '@nozbe/watermelondb';
+import { children, field, relation } from '@nozbe/watermelondb/decorators';
 import { BaseModel } from './BaseModel';
 import ExpenseCategory from "./ExpenseCategory"
 import { CashAccount } from './CashAccount';
+import { Payment } from './Payment';
 
 export default class Transaction extends BaseModel {
   static table = 'transactions';
@@ -19,7 +20,7 @@ export default class Transaction extends BaseModel {
   @field('shop_id') shopId!: string;
 
   @field('transaction_type')
-  transactionType!: 'sale' | 'purchase' | 'expense' | 'income' | 'transfer';
+  transactionType!: 'sale' | 'purchase' | 'expense' | 'income' | 'transfer' | 'payment';
 
   @field('transaction_number') transactionNumber!: string;
 
@@ -63,10 +64,13 @@ export default class Transaction extends BaseModel {
 
   @field('next_recurring_date') nextRecurringDate?: number;
 
+
   // ─── Metadata ───────────────────────────────────────────────
   @field('receipt_image_url') receiptImageUrl?: string;
   @field('is_business_expense') isBusinessExpense?: boolean;
   @field('notes') notes?: string;
 
   @field('recorded_by') recordedBy!: string;
+
+  @children('payments') payments!: Query<Payment>; // Add this line!
 }

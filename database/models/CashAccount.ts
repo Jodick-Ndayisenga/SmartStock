@@ -12,7 +12,7 @@ export class CashAccount extends BaseModel {
 
   @field('shop_id') shopId!: string; // ← Fixed: added !
   @field('name') name!: string;
-  @field('type') type!: 'cash' | 'bank_account' | 'mobile_money' | 'credit_card' | 'petty_cash';
+  @field('type') type!: 'cash' | 'bank_account' | 'mobile_money' | 'credit_card' | 'petty_cash' | 'receivable';
   @field('account_number') accountNumber?: string;
   @field('bank_name') bankName?: string;
   @field('current_balance') currentBalance!: number;

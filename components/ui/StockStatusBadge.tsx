@@ -94,7 +94,7 @@ export const StockStatusBadge: React.FC<StockStatusBadgeProps> = ({
       {/* Visual fill bar (only if quantity known and >0) */}
       {showFill && (
         <View 
-          className={cn('absolute top-0 left-0 h-full', config.fillBg)}
+          className={cn('absolute top-0 left-0 h-[122%]', config.fillBg)}
           style={{ width: `${fillWidth}%` }}
         />
       )}

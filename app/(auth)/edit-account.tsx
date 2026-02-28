@@ -36,7 +36,7 @@ import { Button } from '@/components/ui/Button';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Account type configuration
+// Account type configuration - UPDATED with 'receivable'
 const ACCOUNT_TYPES = [
   {
     id: 'cash',
@@ -45,7 +45,8 @@ const ACCOUNT_TYPES = [
     color: '#22c55e',
     iconColor: '#ffffff',
     gradient: ['#22c55e', '#16a34a'],
-    secondary: '#d1fae5'
+    secondary: '#d1fae5',
+    description: 'Physical cash on hand, like your cash register or cash drawer'
   },
   {
     id: 'bank_account',
@@ -54,7 +55,8 @@ const ACCOUNT_TYPES = [
     color: '#0ea5e9',
     iconColor: '#ffffff',
     gradient: ['#0ea5e9', '#0284c7'],
-    secondary: '#dbeafe'
+    secondary: '#dbeafe',
+    description: 'Money held in a bank account'
   },
   {
     id: 'mobile_money',
@@ -63,7 +65,8 @@ const ACCOUNT_TYPES = [
     color: '#8b5cf6',
     iconColor: '#ffffff',
     gradient: ['#8b5cf6', '#7c3aed'],
-    secondary: '#ede9fe'
+    secondary: '#ede9fe',
+    description: 'Mobile money services like M-PESA, EcoCash, etc.'
   },
   {
     id: 'credit_card',
@@ -72,7 +75,8 @@ const ACCOUNT_TYPES = [
     color: '#ef4444',
     iconColor: '#ffffff',
     gradient: ['#ef4444', '#dc2626'],
-    secondary: '#fee2e2'
+    secondary: '#fee2e2',
+    description: 'Credit card accounts for expenses'
   },
   {
     id: 'petty_cash',
@@ -81,7 +85,18 @@ const ACCOUNT_TYPES = [
     color: '#f59e0b',
     iconColor: '#ffffff',
     gradient: ['#f59e0b', '#d97706'],
-    secondary: '#ffedd5'
+    secondary: '#ffedd5',
+    description: 'Small amount of cash for minor expenses'
+  },
+  {
+    id: 'receivable',
+    label: 'Accounts Receivable',
+    icon: 'hand-holding-heart',
+    color: '#3b82f6',
+    iconColor: '#ffffff',
+    gradient: ['#3b82f6', '#2563eb'],
+    secondary: '#dbeafe',
+    description: 'Money owed to you by customers (system account)'
   }
 ];
 
@@ -98,12 +113,14 @@ const FormField = ({
   label, 
   children, 
   error,
-  required = false
+  required = false,
+  description
 }: {
   label: string;
   children: React.ReactNode;
   error?: string;
   required?: boolean;
+  description?: string;
 }) => {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
@@ -114,6 +131,11 @@ const FormField = ({
         {label} {required && <Text className="text-error">*</Text>}
       </Text>
       {children}
+      {description && (
+        <Text className={`text-xs mt-1 ${isDark ? 'text-dark-text-soft' : 'text-text-soft'}`}>
+          {description}
+        </Text>
+      )}
       {error && (
         <Text className="text-error text-sm mt-1">{error}</Text>
       )}
@@ -141,11 +163,15 @@ export default function EditAccountScreen() {
     currency: 'BIF',
     notes: '',
     isDefault: false,
-    isActive: true
+    isActive: true,
+    openingBalance: '0'
   });
 
   const isDark = colorScheme === 'dark';
   const scrollViewRef = useRef<ScrollView>(null);
+
+  // Check if this is a system account
+  const isSystemAccount = account?.type === 'receivable' || account?.name === 'Accounts Receivable';
 
   // Fetch account data
   useEffect(() => {
@@ -169,7 +195,8 @@ export default function EditAccountScreen() {
           currency: fetchedAccount.currency,
           notes: fetchedAccount.notes || '',
           isDefault: fetchedAccount.isDefault,
-          isActive: fetchedAccount.isActive
+          isActive: fetchedAccount.isActive,
+          openingBalance: fetchedAccount.openingBalance.toString()
         });
       } else {
         Alert.alert('Error', 'Account not found');
@@ -195,6 +222,18 @@ export default function EditAccountScreen() {
       newErrors.bankName = 'Bank name is required for bank accounts';
     }
 
+    if (formData.type === 'mobile_money' && !formData.accountNumber.trim()) {
+      newErrors.accountNumber = 'Account number is required for mobile money';
+    }
+
+    // Validate opening balance if provided
+    if (formData.openingBalance) {
+      const balance = parseFloat(formData.openingBalance);
+      if (isNaN(balance) || balance < 0) {
+        newErrors.openingBalance = 'Please enter a valid positive number';
+      }
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -212,6 +251,10 @@ export default function EditAccountScreen() {
 
     setIsSubmitting(true);
     try {
+      const openingBalance = formData.openingBalance 
+        ? parseFloat(formData.openingBalance) 
+        : account.openingBalance;
+
       const updates = {
         name: formData.name.trim(),
         type: formData.type,
@@ -220,7 +263,8 @@ export default function EditAccountScreen() {
         currency: formData.currency,
         notes: formData.notes.trim() || undefined,
         isDefault: formData.isDefault,
-        isActive: formData.isActive
+        isActive: formData.isActive,
+        openingBalance: openingBalance
       };
 
       await updateCashAccount(account.id, updates);
@@ -243,6 +287,11 @@ export default function EditAccountScreen() {
   };
 
   const handleDeleteAccount = () => {
+    if (isSystemAccount) {
+      Alert.alert('Cannot Delete', 'System accounts cannot be deleted.');
+      return;
+    }
+
     Alert.alert(
       'Delete Account',
       'Are you sure you want to delete this account? This action cannot be undone.',
@@ -255,7 +304,6 @@ export default function EditAccountScreen() {
             try {
               await database.write(async () => {
                 if (account) {
-                  //await account.destroyPermanently();
                   await account.markAsDeleted();
                 }
               });
@@ -324,56 +372,13 @@ export default function EditAccountScreen() {
 
   return (
     <View className={`flex-1 ${isDark ? 'bg-dark-surface' : 'bg-surface-soft'}`}>
-        <PremiumHeader title="Edit Account" showBackButton  />
+      <PremiumHeader title="Edit Account" showBackButton />
+      
       <Stack.Screen
         options={{
           headerShown: false
         }}
       />
-      
-      {/* Header */}
-      {/* <View className={`px-6 pt-6 pb-4 ${isDark ? 'bg-dark-surface' : 'bg-surface'} border-b ${isDark ? 'border-dark-border' : 'border-border'}`}>
-        <View className="flex-row items-center justify-between mb-4">
-          <TouchableOpacity
-            onPress={() => router.back()}
-            className="w-10 h-10 rounded-xl items-center justify-center bg-surface-soft dark:bg-dark-surface-soft"
-          >
-            <Ionicons 
-              name="arrow-back" 
-              size={24} 
-              color={isDark ? '#94a3b8' : '#64748b'} 
-            />
-          </TouchableOpacity>
-          
-          <View className="flex-1 items-center">
-            <View className="flex-row items-center">
-              <View 
-                className="w-10 h-10 rounded-xl items-center justify-center mr-3"
-                style={{ backgroundColor: `${getAccountTypeConfig(formData.type).color}20` }}
-              >
-                <FontAwesome5 
-                  name={getAccountTypeConfig(formData.type).icon} 
-                  size={18}
-                  color={getAccountTypeConfig(formData.type).color}
-                />
-              </View>
-              <Text className={`text-2xl font-bold ${isDark ? 'text-dark-text' : 'text-text'}`}>
-                Edit Account
-              </Text>
-            </View>
-            <Text className={`text-sm ${isDark ? 'text-dark-text-soft' : 'text-text-soft'} mt-1`}>
-              Update your account details
-            </Text>
-          </View>
-          
-          <TouchableOpacity
-            onPress={handleDeleteAccount}
-            className="w-10 h-10 rounded-xl items-center justify-center bg-red-100 dark:bg-red-900/30"
-          >
-            <Ionicons name="trash-outline" size={20} color="#ef4444" />
-          </TouchableOpacity>
-        </View>
-      </View> */}
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -387,7 +392,7 @@ export default function EditAccountScreen() {
         >
           <View className="p-6">
             {/* Account Type Selection */}
-            <View className="mb-14">
+            <View className="mb-8">
               <Text className={`text-lg font-semibold mb-4 ${isDark ? 'text-dark-text' : 'text-text'}`}>
                 Account Type
               </Text>
@@ -401,6 +406,7 @@ export default function EditAccountScreen() {
                     <TouchableOpacity
                       key={type.id}
                       onPress={() => setFormData(prev => ({ ...prev, type: type.id as CashAccountType }))}
+                      disabled={isSystemAccount}
                       className={`
                         items-center justify-center p-4 rounded-2xl min-w-[100px]
                         ${formData.type === type.id 
@@ -411,6 +417,7 @@ export default function EditAccountScreen() {
                           ? `border-[${type.color}]` 
                           : isDark ? 'border-dark-border' : 'border-border'
                         }
+                        ${isSystemAccount ? 'opacity-50' : ''}
                       `}
                     >
                       <View 
@@ -437,16 +444,26 @@ export default function EditAccountScreen() {
                   ))}
                 </View>
               </ScrollView>
+              <Text className={`text-xs mt-3 ${isDark ? 'text-dark-text-soft' : 'text-text-soft'}`}>
+                {getAccountTypeConfig(formData.type).description}
+              </Text>
             </View>
 
             {/* Account Name */}
-            <FormField label="Account Name" error={errors.name} required>
+            <FormField 
+              label="Account Name" 
+              error={errors.name} 
+              required
+              description="A descriptive name for this account"
+            >
               <TextInput
                 value={formData.name}
                 onChangeText={text => setFormData(prev => ({ ...prev, name: text }))}
                 placeholder="e.g., Main Cash Register, BCR Bank Account"
+                editable={!isSystemAccount}
                 className={`
                   border rounded-xl px-4 py-3 text-base
+                  ${isSystemAccount ? 'opacity-50' : ''}
                   ${isDark 
                     ? 'bg-dark-surface-soft text-dark-text border-dark-border' 
                     : 'bg-surface text-text border-border'
@@ -465,12 +482,14 @@ export default function EditAccountScreen() {
                     <TouchableOpacity
                       key={currency.code}
                       onPress={() => setFormData(prev => ({ ...prev, currency: currency.code }))}
+                      disabled={isSystemAccount}
                       className={`
                         px-4 py-3 rounded-xl border
                         ${formData.currency === currency.code
                           ? isDark ? 'bg-dark-brand' : 'bg-brand'
                           : isDark ? 'bg-dark-surface-soft border-dark-border' : 'bg-surface-soft border-border'
                         }
+                        ${isSystemAccount ? 'opacity-50' : ''}
                       `}
                     >
                       <Text className={`
@@ -488,15 +507,76 @@ export default function EditAccountScreen() {
               </ScrollView>
             </FormField>
 
+            {/* Balance Information - NEW SECTION */}
+            <View className="mb-6">
+              <Text className={`text-lg font-semibold mb-4 ${isDark ? 'text-dark-text' : 'text-text'}`}>
+                Balance Information
+              </Text>
+              
+              <View className={`rounded-xl p-4 ${isDark ? 'bg-dark-surface-soft' : 'bg-surface-soft'} border ${isDark ? 'border-dark-border' : 'border-border'}`}>
+                {/* Opening Balance */}
+                <View className="mb-4">
+                  <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-dark-text' : 'text-text'}`}>
+                    Opening Balance
+                  </Text>
+                  <View className="flex-row items-center">
+                    <Text className={`mr-2 text-lg ${isDark ? 'text-dark-text' : 'text-text'}`}>
+                      {CURRENCIES.find(c => c.code === formData.currency)?.symbol}
+                    </Text>
+                    <TextInput
+                      value={formData.openingBalance}
+                      onChangeText={text => setFormData(prev => ({ ...prev, openingBalance: text }))}
+                      placeholder="0"
+                      keyboardType="numeric"
+                      editable={!isSystemAccount}
+                      className={`
+                        flex-1 border rounded-xl px-4 py-3 text-base
+                        ${isSystemAccount ? 'opacity-50' : ''}
+                        ${isDark 
+                          ? 'bg-dark-surface text-dark-text border-dark-border' 
+                          : 'bg-white text-text border-border'
+                        }
+                        ${errors.openingBalance ? 'border-error' : ''}
+                      `}
+                    />
+                  </View>
+                  {errors.openingBalance && (
+                    <Text className="text-error text-sm mt-1">{errors.openingBalance}</Text>
+                  )}
+                  <Text className={`text-xs mt-1 ${isDark ? 'text-dark-text-soft' : 'text-text-soft'}`}>
+                    Set the initial balance when creating this account
+                  </Text>
+                </View>
+
+                {/* Current Balance (Read-only) */}
+                <View className="flex-row justify-between items-center py-2 border-t border-border dark:border-dark-border">
+                  <Text className={`text-sm ${isDark ? 'text-dark-text-soft' : 'text-text-soft'}`}>
+                    Current Balance
+                  </Text>
+                  <Text className={`text-lg font-bold ${isDark ? 'text-dark-text' : 'text-text'}`}>
+                    {CURRENCIES.find(c => c.code === account.currency)?.symbol} 
+                    {account.currentBalance.toLocaleString()}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
             {/* Additional Fields Based on Account Type */}
             {formData.type === 'bank_account' && (
-              <FormField label="Bank Name" error={errors.bankName} required>
+              <FormField 
+                label="Bank Name" 
+                error={errors.bankName} 
+                required
+                description="Name of the bank where this account is held"
+              >
                 <TextInput
                   value={formData.bankName}
                   onChangeText={text => setFormData(prev => ({ ...prev, bankName: text }))}
                   placeholder="e.g., BANCOBU, ECOBANK"
+                  editable={!isSystemAccount}
                   className={`
                     border rounded-xl px-4 py-3 text-base
+                    ${isSystemAccount ? 'opacity-50' : ''}
                     ${isDark 
                       ? 'bg-dark-surface-soft text-dark-text border-dark-border' 
                       : 'bg-surface text-text border-border'
@@ -509,17 +589,24 @@ export default function EditAccountScreen() {
             )}
 
             {(formData.type === 'bank_account' || formData.type === 'mobile_money') && (
-              <FormField label="Account Number">
+              <FormField 
+                label="Account Number"
+                error={errors.accountNumber}
+                description="Account number or mobile money phone number"
+              >
                 <TextInput
                   value={formData.accountNumber}
                   onChangeText={text => setFormData(prev => ({ ...prev, accountNumber: text }))}
-                  placeholder="e.g., 1234567890"
+                  placeholder={formData.type === 'mobile_money' ? 'e.g., 0712345678' : 'e.g., 1234567890'}
+                  editable={!isSystemAccount}
                   className={`
                     border rounded-xl px-4 py-3 text-base
+                    ${isSystemAccount ? 'opacity-50' : ''}
                     ${isDark 
                       ? 'bg-dark-surface-soft text-dark-text border-dark-border' 
                       : 'bg-surface text-text border-border'
                     }
+                    ${errors.accountNumber ? 'border-error' : ''}
                   `}
                   placeholderTextColor={isDark ? '#64748b' : '#94a3b8'}
                   keyboardType="number-pad"
@@ -528,15 +615,20 @@ export default function EditAccountScreen() {
             )}
 
             {/* Notes */}
-            <FormField label="Notes">
+            <FormField 
+              label="Notes"
+              description="Additional information about this account"
+            >
               <TextInput
                 value={formData.notes}
                 onChangeText={text => setFormData(prev => ({ ...prev, notes: text }))}
                 placeholder="Add any additional notes about this account"
                 multiline
                 numberOfLines={4}
+                editable={!isSystemAccount}
                 className={`
                   border rounded-xl px-4 py-3 text-base min-h-[120px]
+                  ${isSystemAccount ? 'opacity-50' : ''}
                   ${isDark 
                     ? 'bg-dark-surface-soft text-dark-text border-dark-border' 
                     : 'bg-surface text-text border-border'
@@ -571,6 +663,7 @@ export default function EditAccountScreen() {
                     <Switch
                       value={formData.isDefault}
                       onValueChange={value => setFormData(prev => ({ ...prev, isDefault: value }))}
+                      disabled={isSystemAccount}
                       trackColor={{ false: isDark ? '#334155' : '#cbd5e1', true: '#0ea5e9' }}
                       thumbColor={formData.isDefault ? '#ffffff' : isDark ? '#64748b' : '#94a3b8'}
                     />
@@ -594,6 +687,7 @@ export default function EditAccountScreen() {
                     <Switch
                       value={formData.isActive}
                       onValueChange={value => setFormData(prev => ({ ...prev, isActive: value }))}
+                      disabled={isSystemAccount}
                       trackColor={{ false: isDark ? '#334155' : '#cbd5e1', true: '#22c55e' }}
                       thumbColor={formData.isActive ? '#ffffff' : isDark ? '#64748b' : '#94a3b8'}
                     />
@@ -641,6 +735,14 @@ export default function EditAccountScreen() {
                     {new Date(account.createdAt).toLocaleDateString()}
                   </Text>
                 </View>
+
+                {isSystemAccount && (
+                  <View className="mt-2 p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                    <Text className="text-blue-700 dark:text-blue-400 text-xs">
+                      ⓘ This is a system account used for tracking receivables. Some settings cannot be modified.
+                    </Text>
+                  </View>
+                )}
               </View>
             </View>
           </View>
@@ -693,22 +795,19 @@ export default function EditAccountScreen() {
             )}
           </TouchableOpacity>
         </View>
-        {
-            !isSubmitting && (
-                <Button
-                    variant="destructive"
-                    className="mt-4"
-                    onPress={handleDeleteAccount}
-                    fullWidth
-                    icon='trash'
-                    iconColor={isDark ? '#ef4444' : '#dc2626'}
-                    iconPosition='left'
-                >
-
-                    Delete Account
-                </Button>  
-            )
-        }
+        
+        {/* Delete Button - Hidden for system accounts */}
+        {!isSystemAccount && !isSubmitting && (
+          <Button
+            variant="destructive"
+            className="mt-4"
+            onPress={handleDeleteAccount}
+            fullWidth
+            icon='trash'
+          >
+            Delete Account
+          </Button>
+        )}
       </View>
     </View>
   );

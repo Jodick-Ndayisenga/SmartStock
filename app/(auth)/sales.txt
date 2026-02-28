@@ -1,41 +1,47 @@
-// app/(tabs)/record-sale.tsx
-import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  ScrollView, 
-  Alert, 
-  TouchableOpacity, 
+// app/(tabs)/sales.tsx
+import database from '@/database';
+import { Ionicons } from '@expo/vector-icons';
+import { Q } from '@nozbe/watermelondb';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import {
+  Alert,
   Animated,
+  Image,
   KeyboardAvoidingView,
   Platform,
-  Dimensions,
-  Image
+  ScrollView,
+  TouchableOpacity,
+  View,
+  Modal,
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import database from '@/database';
-import { Q } from '@nozbe/watermelondb';
-import { useTranslation } from 'react-i18next';
-import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import * as Haptics from 'expo-haptics';
 
 // Components
 import PremiumHeader from '@/components/layout/PremiumHeader';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Loading } from '@/components/ui/Loading';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Input } from '@/components/ui/Input';
+import { Loading } from '@/components/ui/Loading';
 import { StockStatusBadge } from '@/components/ui/StockStatusBadge';
+import { ThemedText } from '@/components/ui/ThemedText';
+
+// Models
+import { Contact } from '@/database/models/Contact';
+import { Product } from '@/database/models/Product';
+import { StockMovement } from '@/database/models/StockMovement';
+
+// Services
+import { createTransactionWithPayments, TransactionData } from '@/services/transactionService';
+import { getDefaultCashAccount } from '@/services/cashAccountService';
+import { StockService } from '@/services/stockServices';
 
 // Hooks
 import { useAuth } from '@/context/AuthContext';
-
-// Models
-import { Product } from '@/database/models/Product';
-import { StockMovement } from '@/database/models/StockMovement';
-import { set } from 'zod';
-
-//const { width: SCREEN_WIDTH } = Dimensions.get('window');
+import { useColorScheme } from 'nativewind';
 
 interface CartItem {
   id: string;
@@ -61,18 +67,42 @@ export default function RecordSaleScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { t } = useTranslation();
-  const { currentShop , user} = useAuth();
+  const { colorScheme } = useColorScheme();
+  const { currentShop, user, tempSelectedContact, setTempSelectedContact } = useAuth();
+  
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
+  const [customers, setCustomers] = useState<Contact[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [quantity, setQuantity] = useState('');
   const [selectedUnit, setSelectedUnit] = useState('');
   const [quickAmounts, setQuickAmounts] = useState<QuickAmount[]>([]);
   const [cartAnimation] = useState(new Animated.Value(0));
+  const [isProcessingSale, setIsProcessingSale] = useState(false);
+
+  // 💳 Payment & Credit State
+  const [paymentMode, setPaymentMode] = useState<'cash' | 'credit'>('cash');
+  const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
+  const [dueDate, setDueDate] = useState<number | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [creditTerms, setCreditTerms] = useState('');
+  const [showDatePickerModal, setShowDatePickerModal] = useState(false);
 
   const productIdFromParams = params.productId as string;
+  const isDark = colorScheme === 'dark';
+
+  // Listen for contact selection
+  useEffect(() => {
+    if (tempSelectedContact) {
+      setSelectedCustomer(tempSelectedContact);
+      setTempSelectedContact(null);
+    }
+  }, [tempSelectedContact]);
 
   useEffect(() => {
     loadData();
@@ -83,29 +113,46 @@ export default function RecordSaleScreen() {
       const product = products.find(p => p.id === productIdFromParams);
       if (product) {
         setSelectedProduct(product);
-        setSelectedUnit(product.sellingUnit);
+        setSelectedUnit(product.sellingUnit || product.baseUnit);
         generateQuickAmounts(product);
       }
     }
   }, [productIdFromParams, products]);
 
+  // implement search products by name, SKU, or barcode
+  useEffect(() => {
+    if (searchQuery.trim() === '') {
+      setProducts([]);
+      return;
+    }
+    const filteredProducts = products.filter(product =>
+      product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      product.sku.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+    setProducts(filteredProducts);
+  }, [searchQuery]);
+
   const loadData = async () => {
     try {
       setLoading(true);
-      
-
       if (currentShop) {
-        const productsData = await database.get<Product>('products')
-          .query(
-            Q.where('shop_id', currentShop.id),
-            Q.where('is_active', true)
-          )
-          .fetch();
+        const [productsData, contactsData] = await Promise.all([
+          database.get<Product>('products')
+            .query(Q.where('shop_id', currentShop.id), Q.where('is_active', true))
+            .fetch(),
+          database.get<Contact>('contacts')
+            .query(
+              Q.where('shop_id', currentShop.id),
+              Q.or(Q.where('role', 'customer'), Q.where('role', 'client'))
+            )
+            .fetch(),
+        ]);
         setProducts(productsData);
+        setCustomers(contactsData);
       }
     } catch (error) {
-      console.error('Error loading data:', error);
-      Alert.alert('Error', 'Failed to load products');
+      console.error('Error loading ', error);
+      Alert.alert('Error', 'Failed to load products or customers');
     } finally {
       setLoading(false);
     }
@@ -113,7 +160,7 @@ export default function RecordSaleScreen() {
 
   const generateQuickAmounts = (product: Product) => {
     const amounts: QuickAmount[] = [];
-    
+
     switch (product.unitType) {
       case 'weight':
         amounts.push(
@@ -144,7 +191,7 @@ export default function RecordSaleScreen() {
         );
         break;
     }
-    
+
     setQuickAmounts(amounts);
   };
 
@@ -152,7 +199,7 @@ export default function RecordSaleScreen() {
     const movements = await database.get<StockMovement>('stock_movements')
       .query(Q.where('product_id', productId))
       .fetch();
-    
+
     let stock = 0;
     movements.forEach(movement => {
       if (movement.movementType === 'IN') {
@@ -161,7 +208,9 @@ export default function RecordSaleScreen() {
         stock -= movement.quantity;
       }
     });
+
     
+
     return stock;
   };
 
@@ -169,8 +218,7 @@ export default function RecordSaleScreen() {
     if (unit === product.baseUnit) {
       return qty * product.sellingPricePerBase;
     }
-    
-    // Convert to base unit for calculation
+
     const baseQuantity = product.convertToBaseUnit(qty, unit);
     return baseQuantity * product.sellingPricePerBase;
   };
@@ -186,7 +234,7 @@ export default function RecordSaleScreen() {
 
     const currentStock = await getProductStock(selectedProduct.id);
     const quantityInBaseUnit = selectedProduct.convertToBaseUnit(qty, selectedUnit);
-    
+
     if (quantityInBaseUnit > currentStock) {
       Alert.alert('Error', `Only ${currentStock} ${selectedProduct.baseUnit} available in stock`);
       return;
@@ -208,8 +256,8 @@ export default function RecordSaleScreen() {
     };
 
     setCart(prev => [...prev, cartItem]);
-    
-    // Animate cart addition
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
     Animated.sequence([
       Animated.timing(cartAnimation, {
         toValue: 1,
@@ -234,6 +282,7 @@ export default function RecordSaleScreen() {
   };
 
   const removeFromCart = (itemId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setCart(prev => prev.filter(item => item.id !== itemId));
   };
 
@@ -243,35 +292,61 @@ export default function RecordSaleScreen() {
       return;
     }
 
-    setCart(prev => prev.map(item => {
-      if (item.id === itemId) {
-        const totalPrice = calculatePrice(
-          products.find(p => p.id === item.productId)!,
-          newQuantity,
-          item.unit
-        );
-        return { ...item, quantity: newQuantity, totalPrice };
-      }
-      return item;
-    }));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setCart(prev =>
+      prev.map(item => {
+        if (item.id === itemId) {
+          const product = products.find(p => p.id === item.productId);
+          if (!product) return item;
+          
+          const totalPrice = calculatePrice(product, newQuantity, item.unit);
+          return { ...item, quantity: newQuantity, totalPrice };
+        }
+        return item;
+      })
+    );
+  };
+
+  const clearCart = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    Alert.alert(
+      'Clear Cart',
+      'Are you sure you want to remove all items from the cart?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Clear', 
+          style: 'destructive',
+          onPress: () => setCart([])
+        },
+      ]
+    );
   };
 
   const quickAddToCart = async (product: Product, quickAmount: QuickAmount) => {
     const currentStock = await getProductStock(product.id);
-    const quantityInBaseUnit = product.convertToBaseUnit(quickAmount.value, quickAmount.unit || product.sellingUnit);
-    
+    const quantityInBaseUnit = product.convertToBaseUnit(
+      quickAmount.value,
+      quickAmount.unit || product.sellingUnit || product.baseUnit
+    );
+    console.log('quantityInBaseUnit', quantityInBaseUnit, 'currentStock', currentStock, 'product', product.name);
+
     if (quantityInBaseUnit > currentStock) {
       Alert.alert('Error', `Only ${currentStock} ${product.baseUnit} available in stock`);
       return;
     }
 
-    const totalPrice = calculatePrice(product, quickAmount.value, quickAmount.unit || product.sellingUnit);
+    const totalPrice = calculatePrice(
+      product,
+      quickAmount.value,
+      quickAmount.unit || product.sellingUnit || product.baseUnit
+    );
     const cartItem: CartItem = {
       id: `${product.id}-${Date.now()}`,
       productId: product.id,
       productName: product.name,
       quantity: quickAmount.value,
-      unit: quickAmount.unit || product.sellingUnit,
+      unit: quickAmount.unit || product.sellingUnit || product.baseUnit,
       pricePerUnit: product.sellingPricePerBase,
       totalPrice,
       currentStock: currentStock - quantityInBaseUnit,
@@ -281,7 +356,8 @@ export default function RecordSaleScreen() {
     };
 
     setCart(prev => [...prev, cartItem]);
-    
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
     Animated.sequence([
       Animated.timing(cartAnimation, {
         toValue: 1,
@@ -298,60 +374,109 @@ export default function RecordSaleScreen() {
 
   const totalAmount = cart.reduce((sum, item) => sum + item.totalPrice, 0);
   const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const cartTax = 0; // You can implement tax calculation
+  const cartDiscount = 0; // You can implement discount calculation
 
   const processSale = async () => {
-    if (!currentShop || cart.length === 0) return;
+    if (!currentShop || cart.length === 0 || !user) return;
+
+    if (paymentMode === 'credit' && !selectedCustomer) {
+      Alert.alert('Missing Customer', 'Please select a customer for credit sale.');
+      return;
+    }
+
+    setIsProcessingSale(true);
+    const defaultAccountId = await getDefaultCashAccount(currentShop.id);
 
     try {
-      await database.write(async () => {
-        for (const item of cart) {
-          const product = products.find(p => p.id === item.productId);
-          if (!product) continue;
+      const txnData: TransactionData = {
+        shopId: currentShop.id,
+        transactionType: 'sale',
+        contactId: paymentMode === 'credit' ? selectedCustomer : undefined,
+        toAccountId: defaultAccountId?.id || '',
+        subtotal: totalAmount,
+        taxAmount: cartTax,
+        discountAmount: cartDiscount,
+        totalAmount: totalAmount + cartTax - cartDiscount,
+        amountPaid: paymentMode === 'cash' ? totalAmount : 0,
+        paymentStatus: paymentMode === 'cash' ? 'paid' : 'due',
+        transactionDate: Date.now(),
+        dueDate: dueDate || undefined,
+        recordedBy: user.id,
+        notes: creditTerms || '',
+        isBusinessExpense: false,
+      };
 
-        // Convert to base units for storage & stock update
-          const quantityInBaseUnit = product.convertToBaseUnit(item.quantity, item.unit);
+      const paymentInputs = [];
+      if (paymentMode === 'cash') {
+        const defaultAccount = await getDefaultCashAccount(currentShop.id);
+        if (!defaultAccount) throw new Error('No default cash account found');
+        paymentInputs.push({
+          cashAccountId: defaultAccount.id,
+          paymentMethodId: 'cash',
+          amount: totalAmount,
+          notes: 'Cash received at time of sale',
+        });
+      }
 
-          // 1. Create SALE movement
-          await database.get<StockMovement>('stock_movements').create(movement => {
+       await createTransactionWithPayments(txnData, paymentInputs);
 
-            movement.productId = item.productId;
-              movement.shopId = currentShop.id;
-              movement.quantity = quantityInBaseUnit;
-              movement.movementType = 'SALE';
-              movement.notes = 'Stock added via product edit';
-              movement.recordedBy = user?.id;
-              movement.timestamp = Date.now();
-          });
+      // Record stock movements
+      for (const item of cart) {
+        const product = products.find(p => p.id === item.productId)!;
+        
+        const timestamp = Date.now();
+        const referenceId = `${timestamp}-${item.productId}`;
+        
+        await StockService.recordMovement({
+          productId: item.productId,
+          shopId: currentShop.id,
+          quantity: product.convertToBaseUnit(item.quantity, product.sellingUnit),
+          movementType: 'SALE',
+          customerId: paymentMode === 'credit' ? selectedCustomer : undefined,
+          referenceId: referenceId,
+          notes: `Sale - ${item.quantity} ${product.sellingUnit} of ${product.name}`,
+          recordedBy: user.id,
+          timestamp: timestamp
+        });
+      }
 
-          // 2. ✅ Atomically update product.stockQuantity
-          await product.update(p => {
-            p.stockQuantity = Math.max(0, (p.stockQuantity || 0) - quantityInBaseUnit);
-          });
-
-
-          setCart([]);
-
-          router.replace('/(tabs)/products');// Just a placeholder ID
-        }
-      });
-
+      setCart([]);
+      setSelectedCustomer(null);
+      setDueDate(null);
+      setCreditTerms('');
+      
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert(
-        'Sale Completed!',
-        `Successfully sold ${totalItems} items for ₣${totalAmount.toLocaleString()}`,
-        [{ text: 'OK', onPress: () => router.back() }]
+        paymentMode === 'cash' ? '✅ Sale Completed!' : '✅ Credit Sale Recorded!',
+        paymentMode === 'cash'
+          ? `Total: ₣${totalAmount.toLocaleString()}`
+          : `${customers.find(c => c.id === selectedCustomer)?.name || 'Customer'} now owes you ₣${totalAmount.toLocaleString()}`,
+        [{ text: 'OK', onPress: () => router.replace('/(tabs)/products') }]
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error recording sale:', error);
-      Alert.alert('Error', 'Failed to record sale');
+      Alert.alert('❌ Error', error.message || 'Failed to record sale. Please try again.');
+    } finally {
+      setIsProcessingSale(false);
     }
   };
 
-  const filteredProducts = products.filter(product =>
-    product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    product.sku?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredProducts = products.filter(product => {
+    
+    const matchesSearch = 
+      product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (product.sku && product.sku.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (product.barcode && product.barcode.toLowerCase().includes(searchQuery.toLowerCase()));
+    
+    const matchesCategory = !selectedCategory || product.category === selectedCategory;
+    
+    return matchesSearch && matchesCategory;
+  });
 
-  if (loading) {
+  const categories = Array.from(new Set(products.map(p => p.category).filter(Boolean))) as string[];
+
+  if (loading && cart.length === 0) {
     return (
       <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
         <PremiumHeader title="Record Sale" showBackButton />
@@ -369,8 +494,8 @@ export default function RecordSaleScreen() {
           title="No Shop Found"
           description="Create a shop first to record sales"
           action={{
-            label: "Create Shop",
-            onPress: () => router.push('/(auth)/create-shop')
+            label: 'Create Shop',
+            onPress: () => router.push('/(auth)/create-shop'),
           }}
         />
       </View>
@@ -379,11 +504,12 @@ export default function RecordSaleScreen() {
 
   return (
     <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
-      <PremiumHeader 
+      <PremiumHeader
         title="Record Sale"
-        searchable searchPlaceholder="Search products by name or SKU..."
-        
-        //onSearchChange={setSearchQuery}
+        showBackButton
+        searchable
+        searchPlaceholder="Search products by name or SKU..."
+        onSearch={setSearchQuery}
       />
 
       <KeyboardAvoidingView
@@ -391,16 +517,18 @@ export default function RecordSaleScreen() {
         className="flex-1"
       >
         <View className="flex-1">
-          {/* Cart Summary - Fixed at top */}
+          {/* Cart Summary */}
           {cart.length > 0 && (
-            <Animated.View 
+            <Animated.View
               style={{
-                transform: [{
-                  scale: cartAnimation.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [1, 1.05]
-                  })
-                }]
+                transform: [
+                  {
+                    scale: cartAnimation.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [1, 1.05],
+                    }),
+                  },
+                ],
               }}
               className="bg-brand/10 border-b border-brand/20"
             >
@@ -415,129 +543,431 @@ export default function RecordSaleScreen() {
                         {cart.length} item{cart.length > 1 ? 's' : ''} • {totalItems} units
                       </ThemedText>
                     </View>
-                    <Button
-                      variant="default"
-                      onPress={processSale}
+
+                    {/* 💳 Payment Mode Toggle */}
+                    <View className="mb-3">
+                      <View className="flex-row justify-center gap-2">
+                        <TouchableOpacity
+                          onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            setPaymentMode('cash');
+                          }}
+                          className={`px-8 py-2 rounded-full ${
+                            paymentMode === 'cash'
+                              ? 'bg-green-500'
+                              : 'bg-surface dark:bg-dark-surface border border-border dark:border-dark-border'
+                          }`}
+                        >
+                          <ThemedText
+                            size="sm"
+                            className={`font-medium ${paymentMode === 'cash' ? 'text-white' : ''}`}
+                          >
+                            Cash
+                          </ThemedText>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            setPaymentMode('credit');
+                          }}
+                          className={`px-8 py-2 rounded-full ${
+                            paymentMode === 'credit'
+                              ? 'bg-blue-500'
+                              : 'bg-surface dark:bg-dark-surface border border-border dark:border-dark-border'
+                          }`}
+                        >
+                          <ThemedText
+                            size="sm"
+                            className={`font-medium ${paymentMode === 'credit' ? 'text-white' : ''}`}
+                          >
+                            Credit
+                          </ThemedText>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    {/* <Button 
+                      variant="default" 
+                      onPress={processSale} 
                       icon="checkmark-circle"
+                      disabled={isProcessingSale || (paymentMode === 'credit' && !selectedCustomer)}
+                      className="p-[2px]"
                     >
-                      Complete Sale
-                    </Button>
+                      {isProcessingSale ? 'Processing...' : 'Complete'}
+                    </Button> */}
                   </View>
                 </CardContent>
               </Card>
             </Animated.View>
           )}
 
-          <ScrollView 
+          <ScrollView
             className="flex-1"
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 100 }}
           >
-            <View className="p-4">
-              {/* Product Selection */}
+            <View className="p-2">
               {!selectedProduct ? (
+                /* Product Selection */
                 <Card variant="elevated" className="mb-4 bg-surface dark:bg-dark-surface">
-                  {/* <CardHeader
-                    title="Select Products"
-                    subtitle="Search and add products to cart"
-                  /> */}
-                  <CardContent className="p-4">
-                    {/* <SearchInput
-                      placeholder="Search products by name or SKU..."
-                      value={searchQuery}
-                      onChangeText={setSearchQuery}
-                      onClear={() => setSearchQuery('')}
-                    /> */}
+                  <CardContent className="p-2">
+                    
 
-                    {/* Quick Sell Products */}
-                    {/* <View className="mt-4">
-                      <ThemedText variant="label" className="mb-3">
-                        Quick Sell - Top Products
-                      </ThemedText>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                        <View className="flex-row gap-3">
-                          {filteredProducts.slice(0, 8).map(product => (
-                            <TouchableOpacity
-                              key={product.id}
-                              onPress={() => {
-                                setSelectedProduct(product);
-                                setSelectedUnit(product.sellingUnit);
-                                generateQuickAmounts(product);
-                              }}
-                              className="w-24 items-center"
+                    {/* Categories Filter (if categories exist) */}
+                    {categories.length > 0 && (
+                      <ScrollView 
+                        horizontal 
+                        showsHorizontalScrollIndicator={false}
+                        className="mb-4 -ml-4 pl-4"
+                      >
+                        <View className="flex-row gap-2">
+                          <TouchableOpacity
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setSelectedCategory(null);
+                            }}
+                            className={`px-4 py-2 rounded-full ${
+                              !selectedCategory 
+                                ? 'bg-brand dark:bg-dark-brand' 
+                                : 'bg-surface-soft dark:bg-dark-surface-soft'
+                            }`}
+                          >
+                            <ThemedText 
+                              size="sm" 
+                              className={!selectedCategory ? 'text-white' : ''}
                             >
-                              <View className="w-16 h-16 rounded-xl bg-surface-muted dark:bg-dark-surface-muted items-center justify-center mb-2 overflow-hidden">
-                                {product.imageUrl ? (
-                                  <Image 
-                                    source={{ uri: product.imageUrl }} 
-                                    className="w-full h-full"
-                                    resizeMode="cover"
-                                  />
-                                ) : (
-                                  <Ionicons name="cube-outline" size={24} color="#94a3b8" />
-                                )}
-                              </View>
+                              All
+                            </ThemedText>
+                          </TouchableOpacity>
+                          {categories.map((category, index) => (
+                            <TouchableOpacity
+                              key={index}
+                              onPress={() => {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                setSelectedCategory(category);
+                              }}
+                              className={`px-4 py-2 rounded-full ${
+                                selectedCategory === category
+                                  ? 'bg-brand dark:bg-dark-brand'
+                                  : 'bg-surface-soft dark:bg-dark-surface-soft'
+                              }`}
+                            >
                               <ThemedText 
-                                variant="default" 
                                 size="sm" 
-                                numberOfLines={2}
-                                className="text-center"
+                                className={selectedCategory === category ? 'text-white' : ''}
                               >
-                                {product.name}
-                              </ThemedText>
-                              <ThemedText variant="muted" size="xs" className="text-center">
-                                ₣{product.sellingPricePerBase}
+                                {category}
                               </ThemedText>
                             </TouchableOpacity>
                           ))}
                         </View>
                       </ScrollView>
-                    </View> */}
+                    )}
 
-                    {/* All Products List */}
-                    <View className="mt-6">
-                      <ThemedText variant="label" className="mb-3">
-                        All Products
-                      </ThemedText>
-                      <View className="gap-2">
-                        {filteredProducts.map(product => (
-                          <TouchableOpacity
-                            key={product.id}
-                            onPress={() => {
-                              setSelectedProduct(product);
-                              setSelectedUnit(product.sellingUnit);
-                              generateQuickAmounts(product);
-                            }}
-                            className="flex-row items-center p-3 bg-surface dark:bg-dark-surface rounded-lg border border-border dark:border-dark-border"
+                    {/* Empty State or Product List */}
+                    {filteredProducts.length === 0 ? (
+                      <View className=" items-center justify-center px-4">
+                        {/* Animated Illustration */}
+                        <View className="w-48 h-48 items-center justify-center mb-6">
+                          <View className="w-40 h-40 rounded-full bg-primary/10 dark:bg-primary/20 items-center justify-center">
+                            <View className="w-32 h-32 rounded-full bg-primary/20 dark:bg-primary/30 items-center justify-center">
+                              <Ionicons 
+                                name={searchQuery ? "search-outline" : "cube-outline"} 
+                                size={64} 
+                                color={isDark ? '#60a5fa' : '#3b82f6'} 
+                              />
+                            </View>
+                          </View>
+                        </View>
+
+                        {/* Title */}
+                        <ThemedText 
+                          variant="heading" 
+                          size="xl" 
+                          className="text-center mb-2 font-bold"
+                        >
+                          {searchQuery ? "No Results Found" : "No Products Yet"}
+                        </ThemedText>
+
+                        {/* Description */}
+                        <ThemedText 
+                          variant="muted" 
+                          size="base" 
+                          className="text-center mb-8 max-w-xs"
+                        >
+                          {searchQuery 
+                            ? `No products matching "${searchQuery}"`
+                            : 'Add products to start selling in your shop'}
+                        </ThemedText>
+
+                        {/* Action Buttons */}
+                        <View className="w-full gap-3 max-w-xs">
+                          {searchQuery ? (
+                            <>
+                              <Button
+                                variant="outline"
+                                size="lg"
+                                onPress={() => setSearchQuery('')}
+                                icon="refresh"
+                              >
+                                Clear Search
+                              </Button>
+                              <Button
+                                variant="default"
+                                size="lg"
+                                onPress={() => router.push(`/add-product?name=${encodeURIComponent(searchQuery)}`)}
+                                icon="add-circle"
+                              >
+                                Create "{searchQuery}"
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button
+                                variant="default"
+                                size="lg"
+                                onPress={() => router.push('/add-product')}
+                                icon="add-circle"
+                              >
+                                Add Your First Product
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="lg"
+                                onPress={() => router.push('/products/import')}
+                                icon="download"
+                              >
+                                Import Products
+                              </Button>
+                            </>
+                          )}
+
+                          
+                        </View>
+
+                        {/* Stats Preview */}
+                        <View className="mt-10 pt-6 border-t border-border dark:border-dark-border w-full">
+                          <ThemedText 
+                            variant="muted" 
+                            size="sm" 
+                            className="text-center mb-4"
                           >
-                            <View className="w-12 h-12 rounded-lg bg-surface-muted dark:bg-dark-surface-muted items-center justify-center mr-3 overflow-hidden">
-                              {product.imageUrl ? (
-                                <Image 
-                                  source={{ uri: product.imageUrl }} 
-                                  className="w-full h-full"
-                                  resizeMode="cover"
-                                />
-                              ) : (
-                                <Ionicons name="cube-outline" size={20} color="#94a3b8" />
-                              )}
-                            </View>
-                            <View className="flex-1">
-                              <ThemedText variant="default" size="base" className="font-medium">
-                                {product.name}
+                            Shop Overview
+                          </ThemedText>
+                          <View className="flex-row justify-around">
+                            <View className="items-center">
+                              <ThemedText variant="heading" size="lg" className="font-bold">
+                                0
                               </ThemedText>
-                              <ThemedText variant="muted" size="sm">
-                                FBU {product.stockQuantity} / {product.sellingUnit}
+                              <ThemedText variant="muted" size="xs">
+                                Products
                               </ThemedText>
                             </View>
-                            <Ionicons name="chevron-forward" size={20} color="#64748b" />
-                          </TouchableOpacity>
-                        ))}
+                            <View className="items-center">
+                              <ThemedText variant="heading" size="lg" className="font-bold">
+                                ₣0
+                              </ThemedText>
+                              <ThemedText variant="muted" size="xs">
+                                Total Value
+                              </ThemedText>
+                            </View>
+                            <View className="items-center">
+                              <ThemedText variant="heading" size="lg" className="font-bold">
+                                0
+                              </ThemedText>
+                              <ThemedText variant="muted" size="xs">
+                                In Stock
+                              </ThemedText>
+                            </View>
+                          </View>
+                        </View>
                       </View>
-                    </View>
+                    ) : (
+                      /* Product List */
+                      <View className="mt-2">
+                        <View className="flex-row justify-between items-center mb-4">
+                          <View>
+                            <ThemedText variant="label" className="font-semibold">
+                              Available Products
+                            </ThemedText>
+                            <ThemedText variant="muted" size="sm">
+                              {filteredProducts.length} product{filteredProducts.length !== 1 ? 's' : ''}
+                              {selectedCategory ? ` in ${selectedCategory}` : ''}
+                            </ThemedText>
+                          </View>
+                          <View className="flex-row items-center gap-2">
+                            <TouchableOpacity
+                              onPress={() => {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                setViewMode(viewMode === 'grid' ? 'list' : 'grid');
+                              }}
+                              className="p-2 rounded-lg bg-surface-soft dark:bg-dark-surface-soft"
+                            >
+                              <Ionicons 
+                                name={viewMode === 'grid' ? 'list' : 'grid'} 
+                                size={20} 
+                                color="#64748b" 
+                              />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => router.push('/add-product')}
+                              className="flex-row items-center gap-1 p-2 bg-brand/10 dark:bg-dark-brand/20 rounded-lg"
+                            >
+                              <Ionicons name="add" size={18} color="#3b82f6" />
+                              <ThemedText variant="brand" size="sm" className="font-medium">
+                                New
+                              </ThemedText>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+
+                        {/* Products Grid/List */}
+                        {viewMode === 'grid' ? (
+                          <View className="flex-row flex-wrap">
+                            {filteredProducts.map((product, index) => (
+                              <TouchableOpacity
+                                key={product.id}
+                                onPress={() => {
+                                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                  setSelectedProduct(product);
+                                  setSelectedUnit(product.sellingUnit || product.baseUnit);
+                                  generateQuickAmounts(product);
+                                }}
+                                className={`
+                                  w-[48%] 
+                                  ${index % 2 === 0 ? 'mr-[4%]' : ''} 
+                                  mb-4
+                                  bg-surface dark:bg-dark-surface 
+                                  rounded-xl 
+                                  border border-border dark:border-dark-border 
+                                  p-3 
+                                  active:scale-[0.98]
+                                `}
+                              >
+                                {/* Rest of your content remains the same */}
+                                <View className="w-full h-32 rounded-lg bg-surface-muted dark:bg-dark-surface-muted items-center justify-center mb-3 overflow-hidden">
+                                  {product.imageUrl ? (
+                                    <Image
+                                      source={{ uri: product.imageUrl }}
+                                      className="w-full h-full"
+                                      resizeMode="cover"
+                                    />
+                                  ) : (
+                                    <View className="w-full h-full items-center justify-center bg-gradient-to-br from-primary/10 to-secondary/10">
+                                      <Ionicons name="cube-outline" size={32} color="#64748b" />
+                                    </View>
+                                  )}
+                                  <View className="absolute top-2 right-2 bg-surface-soft dark:bg-dark-surface-soft rounded-full">
+                                    <StockStatusBadge
+                                      status={getStockStatus(product?.stockQuantity ?? 0)}
+                                      size="sm"
+                                    />
+                                  </View>
+                                </View>
+                                <View>
+                                  <ThemedText 
+                                    variant="default" 
+                                    size="base" 
+                                    className="font-semibold mb-1"
+                                    numberOfLines={1}
+                                  >
+                                    {product.name}
+                                  </ThemedText>
+                                  <ThemedText variant="muted" size="sm" className="mb-1">
+                                    Stock: {product.stockQuantity} {product.baseUnit}
+                                  </ThemedText>
+                                  <ThemedText variant="heading" size="base" className="text-success font-bold">
+                                    ₣{product.sellingPricePerBase}
+                                    <ThemedText variant="muted" size="xs">
+                                      /{product.baseUnit}
+                                    </ThemedText>
+                                  </ThemedText>
+                                  {product.category && (
+                                    <View className="mt-2">
+                                      <View className="px-2 py-1 bg-surface-soft dark:bg-dark-surface-soft rounded-full self-start">
+                                        <ThemedText variant="muted" size="xs">
+                                          {product.category}
+                                        </ThemedText>
+                                      </View>
+                                    </View>
+                                  )}
+                                </View>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                          ) : (
+                            <View className="gap-2">
+                              {filteredProducts.map(product => (
+                                <TouchableOpacity
+                                  key={product.id}
+                                  onPress={() => {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                    setSelectedProduct(product);
+                                    setSelectedUnit(product.sellingUnit || product.baseUnit);
+                                    generateQuickAmounts(product);
+                                  }}
+                                  className="flex-row items-center p-3 bg-surface dark:bg-dark-surface rounded-lg border border-border dark:border-dark-border active:scale-[0.98]"
+                                >
+                                  <View className="w-12 h-12 rounded-lg bg-surface-muted dark:bg-dark-surface-muted items-center justify-center mr-3 overflow-hidden">
+                                    {product.imageUrl ? (
+                                      <Image
+                                        source={{ uri: product.imageUrl }}
+                                        className="w-full h-full"
+                                        resizeMode="cover"
+                                      />
+                                    ) : (
+                                      <View className="w-full h-full items-center justify-center bg-gradient-to-br from-primary/10 to-secondary/10">
+                                        <Ionicons name="cube-outline" size={20} color="#64748b" />
+                                      </View>
+                                    )}
+                                  </View>
+                                  <View className="flex-1">
+                                    <ThemedText variant="default" size="base" className="font-medium mb-1">
+                                      {product.name}
+                                    </ThemedText>
+                                    <View className="flex-row items-center gap-3">
+                                      <ThemedText variant="muted" size="sm">
+                                        Stock: {product.stockQuantity}
+                                      </ThemedText>
+                                      <View className="w-1 h-1 rounded-full bg-border dark:bg-dark-border" />
+                                      <ThemedText variant="muted" size="sm">
+                                        ₣{product.sellingPricePerBase}/{product.baseUnit}
+                                      </ThemedText>
+                                    </View>
+                                    {product.category && (
+                                      <View className="mt-1">
+                                        <View className="px-2 py-1 bg-surface-soft dark:bg-dark-surface-soft rounded-full self-start">
+                                          <ThemedText variant="muted" size="xs">
+                                            {product.category}
+                                          </ThemedText>
+                                        </View>
+                                      </View>
+                                    )}
+                                  </View>
+                                  <View className="items-end">
+                                    <StockStatusBadge
+                                      status={getStockStatus(product.stockQuantity ?? 0)}
+                                      size="sm"
+                                      quantity={product.stockQuantity}
+                                    />
+                                    <Ionicons 
+                                      name="chevron-forward" 
+                                      size={20} 
+                                      color="#64748b" 
+                                      className="mt-2"
+                                    />
+                                  </View>
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          )}
+                      </View>
+                    )}
                   </CardContent>
                 </Card>
               ) : (
-                /* Product Details & Quantity Selection */
+                /* Product Details */
                 <Card variant="elevated" className="mb-4">
                   <CardHeader
                     title={selectedProduct.name}
@@ -546,9 +976,14 @@ export default function RecordSaleScreen() {
                       <Button
                         variant="destructive"
                         size="sm"
-                        onPress={resetProductSelection}
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          resetProductSelection();
+                        }}
                         icon="close"
-                      >Close</Button>
+                      >
+                        Close
+                      </Button>
                     }
                   />
                   <CardContent className="p-4">
@@ -556,13 +991,15 @@ export default function RecordSaleScreen() {
                     <View className="flex-row items-center mb-6 p-4 bg-surface-soft dark:bg-dark-surface-soft rounded-lg">
                       <View className="w-16 h-16 rounded-lg bg-surface-muted dark:bg-dark-surface-muted items-center justify-center mr-4 overflow-hidden">
                         {selectedProduct.imageUrl ? (
-                          <Image 
-                            source={{ uri: selectedProduct.imageUrl }} 
+                          <Image
+                            source={{ uri: selectedProduct.imageUrl }}
                             className="w-full h-full"
                             resizeMode="cover"
                           />
                         ) : (
-                          <Ionicons name="cube-outline" size={24} color="#94a3b8" />
+                          <View className="w-full h-full items-center justify-center bg-gradient-to-br from-primary/10 to-secondary/10">
+                            <Ionicons name="cube-outline" size={24} color="#64748b" />
+                          </View>
                         )}
                       </View>
                       <View className="flex-1">
@@ -570,53 +1007,58 @@ export default function RecordSaleScreen() {
                           {selectedProduct.name}
                         </ThemedText>
                         <ThemedText variant="muted" size="sm" className="mb-1">
-                          FBU {selectedProduct.sellingPricePerBase} per {selectedProduct.baseUnit}
+                          ₣{selectedProduct.sellingPricePerBase} per {selectedProduct.baseUnit}
                         </ThemedText>
-                        <StockStatusBadge 
-                          status={getStockStatus(selectedProduct.stockQuantity)} // You'd calculate actual stock
+                        <StockStatusBadge
+                          status={getStockStatus(selectedProduct.stockQuantity ?? 0)}
                           size="sm"
-                          quantity={selectedProduct.stockQuantity}
+                          quantity={selectedProduct.stockQuantity ?? 0}
                         />
                       </View>
                     </View>
 
-                    {/* Quick Amount Buttons */}
+                    {/* Quick Add */}
                     <View className="mb-6">
-                      <ThemedText variant="label" className="mb-3">
+                      <ThemedText variant="label" className="mb-3 font-semibold">
                         Quick Add
                       </ThemedText>
                       <View className="flex-row flex-wrap gap-2">
                         {quickAmounts.map((amount, index) => (
                           <TouchableOpacity
                             key={index}
-                            onPress={() => quickAddToCart(selectedProduct, amount)}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              quickAddToCart(selectedProduct, amount);
+                            }}
                             className="px-4 py-3 bg-surface dark:bg-dark-surface rounded-lg border border-border dark:border-dark-border active:bg-surface-soft dark:active:bg-dark-surface-soft"
                           >
                             <ThemedText variant="default" size="base" className="font-medium">
                               {amount.label}
+                            </ThemedText>
+                            <ThemedText variant="muted" size="xs" className="text-center mt-1">
+                              ₣{calculatePrice(selectedProduct, amount.value, selectedUnit).toLocaleString()}
                             </ThemedText>
                           </TouchableOpacity>
                         ))}
                       </View>
                     </View>
 
-                    {/* Custom Quantity Input */}
+                    {/* Custom Quantity */}
                     <View className="mb-6">
-                      
                       <View className="flex-row items-center gap-3">
                         <View className="flex-1">
-                          <ThemedText variant="label" className="mb-3">
+                          <ThemedText variant="label" className="mb-3 font-semibold">
                             Custom Quantity
                           </ThemedText>
                           <Input
                             placeholder={`Enter quantity in ${selectedUnit}`}
                             value={quantity}
                             onChangeText={setQuantity}
-                            keyboardType="phone-pad"
+                            keyboardType="numeric"
                           />
                         </View>
                         <View className="w-24">
-                          <ThemedText variant="muted" size="sm" className=" text-center">
+                          <ThemedText variant="muted" size="sm" className="text-center mb-1">
                             Unit
                           </ThemedText>
                           <View className="flex-row items-center justify-center px-3 py-3 bg-surface dark:bg-dark-surface rounded-base border border-border dark:border-dark-border">
@@ -628,14 +1070,15 @@ export default function RecordSaleScreen() {
                       </View>
                     </View>
 
-                    {/* Quantity Adjuster */}
+                    {/* Adjuster */}
                     <View className="mb-6">
-                      <ThemedText variant="label" className="mb-3">
+                      <ThemedText variant="label" className="mb-3 font-semibold">
                         Adjust Quantity
                       </ThemedText>
                       <View className="flex-row items-center justify-between bg-surface dark:bg-dark-surface rounded-xl p-1 border border-border dark:border-dark-border">
                         <TouchableOpacity
                           onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                             const current = parseFloat(quantity) || 0;
                             setQuantity(Math.max(0, current - 1).toString());
                           }}
@@ -643,7 +1086,7 @@ export default function RecordSaleScreen() {
                         >
                           <Ionicons name="remove" size={24} color="#64748b" />
                         </TouchableOpacity>
-                        
+
                         <View className="flex-1 items-center">
                           <ThemedText variant="heading" size="xl">
                             {quantity || '0'}
@@ -655,6 +1098,7 @@ export default function RecordSaleScreen() {
 
                         <TouchableOpacity
                           onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                             const current = parseFloat(quantity) || 0;
                             setQuantity((current + 1).toString());
                           }}
@@ -665,15 +1109,18 @@ export default function RecordSaleScreen() {
                       </View>
                     </View>
 
-                    {/* Add to Cart Button */}
                     <Button
                       variant="default"
                       size="lg"
                       onPress={addToCart}
                       disabled={!quantity || parseFloat(quantity) <= 0}
                       icon="cart"
+                      className="w-full"
                     >
-                      Add to Cart - ₣{quantity ? calculatePrice(selectedProduct, parseFloat(quantity), selectedUnit).toLocaleString() : '0'}
+                      Add to Cart - ₣
+                      {quantity
+                        ? calculatePrice(selectedProduct, parseFloat(quantity), selectedUnit).toLocaleString()
+                        : '0'}
                     </Button>
                   </CardContent>
                 </Card>
@@ -681,10 +1128,20 @@ export default function RecordSaleScreen() {
 
               {/* Cart Items */}
               {cart.length > 0 && (
-                <Card variant="elevated">
+                <Card variant="elevated" className="mt-4">
                   <CardHeader
                     title="Current Sale Items"
-                    subtitle={`${cart.length} product${cart.length > 1 ? 's' : ''} in cart`}
+                    subtitle={`${cart.length} product${cart.length > 1 ? 's' : ''} in cart • Total: ₣${totalAmount.toLocaleString()}`}
+                    action={
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onPress={clearCart}
+                        icon="trash"
+                      >
+                        Clear
+                      </Button>
+                    }
                   />
                   <CardContent className="p-0">
                     {cart.map((item, index) => (
@@ -696,71 +1153,269 @@ export default function RecordSaleScreen() {
                       >
                         <View className="w-12 h-12 rounded-lg bg-surface-muted dark:bg-dark-surface-muted items-center justify-center mr-3 overflow-hidden">
                           {item.imageUrl ? (
-                            <Image 
-                              source={{ uri: item.imageUrl }} 
+                            <Image
+                              source={{ uri: item.imageUrl }}
                               className="w-full h-full"
                               resizeMode="cover"
                             />
                           ) : (
-                            <Ionicons name="cube-outline" size={20} color="#94a3b8" />
+                            <View className="w-full h-full items-center justify-center bg-gradient-to-br from-primary/10 to-secondary/10">
+                              <Ionicons name="cube-outline" size={20} color="#94a3b8" />
+                            </View>
                           )}
                         </View>
-                        
+
                         <View className="flex-1">
-                          <ThemedText variant="default" size="base" className="font-medium">
+                          <ThemedText variant="default" size="base" className="font-medium mb-1">
                             {item.productName}
                           </ThemedText>
                           <ThemedText variant="muted" size="sm">
                             {item.quantity} {item.unit} × ₣{item.pricePerUnit}
                           </ThemedText>
+                          <StockStatusBadge
+                            status={getStockStatus(item.currentStock)}
+                            size="sm"
+                            className="mt-1"
+                          />
                         </View>
 
                         <View className="items-end">
-                          <ThemedText variant="heading" size="base">
+                          <ThemedText variant="heading" size="base" className="font-bold">
                             ₣{item.totalPrice.toLocaleString()}
                           </ThemedText>
-                          
-                          <View className="flex-row items-center space-x-2 mt-1">
+
+                          <View className="flex-row items-center space-x-2 mt-2">
                             <TouchableOpacity
-                              onPress={() => updateCartQuantity(item.id, item.quantity - 1)}
-                              className="w-6 h-6 items-center justify-center rounded-sm bg-surface-soft dark:bg-dark-surface-soft"
+                              onPress={() => {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                updateCartQuantity(item.id, item.quantity - 1);
+                              }}
+                              className="w-8 h-8 items-center justify-center rounded-full bg-surface-soft dark:bg-dark-surface-soft"
                             >
-                              <Ionicons name="remove" size={14} color="#64748b" />
+                              <Ionicons name="remove" size={16} color="#64748b" />
                             </TouchableOpacity>
-                            
-                            <ThemedText variant="muted" size="sm">
-                              {item.quantity}
-                            </ThemedText>
-                            
+
+                            <View className="w-10 items-center">
+                              <ThemedText variant="default" size="base" className="font-medium">
+                                {item.quantity}
+                              </ThemedText>
+                            </View>
+
                             <TouchableOpacity
-                              onPress={() => updateCartQuantity(item.id, item.quantity + 1)}
-                              className="w-6 h-6 items-center justify-center rounded-sm bg-surface-soft dark:bg-dark-surface-soft"
+                              onPress={() => {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                updateCartQuantity(item.id, item.quantity + 1);
+                              }}
+                              className="w-8 h-8 items-center justify-center rounded-full bg-surface-soft dark:bg-dark-surface-soft"
                             >
-                              <Ionicons name="add" size={14} color="#64748b" />
+                              <Ionicons name="add" size={16} color="#64748b" />
                             </TouchableOpacity>
                           </View>
                         </View>
 
                         <TouchableOpacity
-                          onPress={() => removeFromCart(item.id)}
+                          onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                            removeFromCart(item.id);
+                          }}
                           className="ml-3 p-2"
                         >
-                          <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                          <Ionicons name="trash-outline" size={20} color="#ef4444" />
                         </TouchableOpacity>
                       </View>
                     ))}
+
+                    {/* Cart Summary */}
+                    <View className="p-4 border-t border-border dark:border-dark-border">
+                      <View className="flex-row justify-between mb-2">
+                        <ThemedText variant="muted" size="base">
+                          Subtotal
+                        </ThemedText>
+                        <ThemedText variant="default" size="base">
+                          ₣{totalAmount.toLocaleString()}
+                        </ThemedText>
+                      </View>
+                      <View className="flex-row justify-between mb-2">
+                        <ThemedText variant="muted" size="base">
+                          Tax
+                        </ThemedText>
+                        <ThemedText variant="default" size="base">
+                          ₣{cartTax.toLocaleString()}
+                        </ThemedText>
+                      </View>
+                      <View className="flex-row justify-between mb-4">
+                        <ThemedText variant="muted" size="base">
+                          Discount
+                        </ThemedText>
+                        <ThemedText variant="default" size="base" className="text-success">
+                          -₣{cartDiscount.toLocaleString()}
+                        </ThemedText>
+                      </View>
+                      <View className="flex-row justify-between pt-4 border-t border-border dark:border-dark-border">
+                        <ThemedText variant="heading" size="lg" className="font-bold">
+                          Total
+                        </ThemedText>
+                        <ThemedText variant="heading" size="lg" className="font-bold">
+                          ₣{(totalAmount + cartTax - cartDiscount).toLocaleString()}
+                        </ThemedText>
+                      </View>
+                    </View>
                   </CardContent>
                 </Card>
+              )}
+
+              {/* 💳 Credit-Specific Fields */}
+              {cart.length > 0 && paymentMode === 'credit' && (
+                <Card variant="elevated" className="mt-4">
+                  <CardContent className="p-4">
+                    {/* Customer Selection */}
+                    <View className="mb-4">
+                      <ThemedText variant="label" className="mb-2 font-semibold">
+                        Customer (Who owes you?)
+                      </ThemedText>
+                      <TouchableOpacity
+                        onPress={() => {
+                          router.push(`/shops/${currentShop.id}/contacts?selectFor=sale`);
+                        }}
+                        className="p-3 bg-surface dark:bg-dark-surface rounded-lg border border-border dark:border-dark-border flex-row justify-between items-center"
+                      >
+                        {selectedCustomer ? (
+                          <ThemedText variant="default">
+                            {customers.find(c => c.id === selectedCustomer)?.name || 'Unknown'}
+                          </ThemedText>
+                        ) : (
+                          <ThemedText variant="muted">Select a customer</ThemedText>
+                        )}
+                        <Ionicons name="chevron-forward" size={20} color="#64748b" />
+                      </TouchableOpacity>
+                      {!selectedCustomer && (
+                        <TouchableOpacity
+                          onPress={() => router.push('/contacts/new?from=sale')}
+                          className="mt-2 flex-row items-center gap-1"
+                        >
+                          <Ionicons name="add-circle" size={16} color="#3b82f6" />
+                          <ThemedText variant="brand" size="sm">
+                            Add New Customer
+                          </ThemedText>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+
+                    {/* Due Date Picker */}
+                    <View className="mb-4">
+                      <ThemedText variant="label" className="mb-2 font-semibold">
+                        Due Date (Optional)
+                      </ThemedText>
+                      <TouchableOpacity
+                        onPress={() => setShowDatePickerModal(true)}
+                        className="p-3 bg-surface dark:bg-dark-surface rounded-lg border border-border dark:border-dark-border"
+                      >
+                        <ThemedText variant="default">
+                          {dueDate 
+                            ? new Date(dueDate).toLocaleDateString() 
+                            : 'Tap to set due date'}
+                        </ThemedText>
+                      </TouchableOpacity>
+                      {dueDate && (
+                        <TouchableOpacity
+                          onPress={() => setDueDate(null)}
+                          className="mt-2 flex-row items-center gap-1"
+                        >
+                          <Ionicons name="close-circle" size={16} color="#ef4444" />
+                          <ThemedText variant="error" size="sm">
+                            Clear Due Date
+                          </ThemedText>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+
+                    {/* Credit Terms */}
+                    <View className="mt-4">
+                      <ThemedText variant="label" className="mb-2 font-semibold">
+                        Credit Terms
+                      </ThemedText>
+                      <Input
+                        placeholder="e.g., Net 30, Pay within 2 weeks"
+                        value={creditTerms}
+                        onChangeText={setCreditTerms}
+                        //leftIcon="document-text-outline"
+                      />
+                    </View>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Complete Sale Button */}
+              {cart.length > 0 && (
+                <View className="mt-6">
+                  <Button
+                    size="lg"
+                    onPress={processSale}
+                    disabled={isProcessingSale || (paymentMode === 'credit' && !selectedCustomer)}
+                    icon="checkmark-circle"
+                    className="w-full"
+                  >
+                    {isProcessingSale ? 'Processing...' : 'Complete Sale'}
+                  </Button>
+                  <ThemedText variant="muted" size="sm" className="text-center mt-2">
+                    Total: ₣{(totalAmount + cartTax - cartDiscount).toLocaleString()}
+                  </ThemedText>
+                </View>
               )}
             </View>
           </ScrollView>
         </View>
+
+        {/* 📅 Date Picker Modal */}
+        {showDatePickerModal && (
+          <Modal
+            transparent
+            visible={showDatePickerModal}
+            animationType="slide"
+            onRequestClose={() => setShowDatePickerModal(false)}
+          >
+            <View className="flex-1 bg-black/50 justify-end">
+              <View className={`rounded-t-3xl p-6 ${isDark ? 'bg-dark-surface' : 'bg-surface'}`}>
+                <View className="flex-row items-center justify-between mb-6">
+                  <ThemedText variant="heading" size="xl" className="font-bold">
+                    Select Due Date
+                  </ThemedText>
+                  <TouchableOpacity onPress={() => setShowDatePickerModal(false)}>
+                    <Ionicons name="close" size={24} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+                <DateTimePicker
+                  value={dueDate ? new Date(dueDate) : new Date()}
+                  mode="date"
+                  display="spinner"
+                  onChange={(event, selectedDate) => {
+                    if (selectedDate) {
+                      const endOfDay = new Date(selectedDate);
+                      endOfDay.setHours(23, 59, 59, 999);
+                      setDueDate(endOfDay.getTime());
+                    }
+                  }}
+                  themeVariant={isDark ? 'dark' : 'light'}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowDatePickerModal(false)}
+                  className={`mt-6 py-3 rounded-xl items-center justify-center ${
+                    isDark ? 'bg-dark-brand' : 'bg-brand'
+                  }`}
+                >
+                  <ThemedText variant="label" className="text-white font-semibold">
+                    Done
+                  </ThemedText>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+        )}
       </KeyboardAvoidingView>
     </View>
   );
 }
 
-// Helper function for stock status (you'll implement actual stock calculation)
 const getStockStatus = (stock: number, threshold: number = 10) => {
   if (stock === 0) return 'out-of-stock';
   if (stock <= threshold) return 'low-stock';

@@ -50,8 +50,10 @@ export default function ProductsScreen() {
   const [sortBy, setSortBy] = useState<SortBy>('name');
   const [sortAsc, setSortAsc] = useState(true);
   const { user, currentShop } = useAuth();
+  const productsCollection = database.get<Product>('products');
 
   useEffect(() => {
+    
     loadProducts();
 
   }, [currentShop]);
@@ -61,7 +63,19 @@ export default function ProductsScreen() {
     try {
       setLoading(true);
       if (currentShop?.id) {
+
+        const activeProducts = await productsCollection
+          .query(
+            Q.where('shop_id', currentShop.id),
+            Q.where('is_active', true)
+          )
+          .fetch();
+
+
+          console.log('Active products count:', activeProducts.length);
+
         // Get products as WatermelonDB Model instances
+        console.log('Loading products for shop ID:', currentShop.id);
         const productsData = await database.get<Product>('products')
           .query(
             Q.where('shop_id', currentShop?.id),
@@ -69,6 +83,7 @@ export default function ProductsScreen() {
           )
           .fetch();
 
+          //console.log('Fetched products:', productsData.map(p => p.name));
         // Convert to plain objects with actual data
         const productsWithStock: any = await Promise.all(
           productsData.map(async (productModel) => {
@@ -130,7 +145,6 @@ export default function ProductsScreen() {
     setRefreshing(true);
     loadProducts();
   };
-
   // print the movements of a product
 
   const calculateProductStock = async (productId: string): Promise<number> => {
@@ -591,8 +605,8 @@ export default function ProductsScreen() {
               }
               action={
                 filter === 'all' && !searchQuery ? {
-                  label: "Add First Product",
-                  onPress: () => router.push('/add-product')
+                  label: "Add products from template",
+                  onPress: () => router.push('/templates-products')
                 } : undefined
               }
               className="py-16"

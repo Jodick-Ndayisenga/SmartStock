@@ -7,8 +7,6 @@ import {
   Modal,
   FlatList,
   TouchableWithoutFeedback,
-  Keyboard,
-  Platform,
   useColorScheme,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';

@@ -147,7 +147,7 @@ export default function ContactListScreen() {
               variant="secondary"
               size="sm"
               icon="add"
-              onPress={() => router.push(`/shops/${shopId}/contacts/add`)}
+              onPress={() => router.push(`/shops/${shopId}/contacts/add?from=sale`) }
             >
               New
             </Button>
@@ -182,7 +182,7 @@ export default function ContactListScreen() {
         )}
         <Button
             icon="add"
-            onPress={() => router.push(`/shops/${shopId}/contacts/add`)}
+            onPress={() => router.push(`/shops/${shopId}/contacts/add?from=sale`) }
             >
             Add Contacts
             </Button>

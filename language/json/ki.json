@@ -24,7 +24,8 @@
     "monday": "Kuwa mbere",
     "sunday": "Kuwa cyenda",
     "getStarted": "Tangira",
-    "creating": "Kora..."
+    "creating": "Kora...",
+    "customer": "Umuguzi"
   },
   "auth": {
     "welcome": "Murakaza neza",
@@ -138,7 +139,12 @@
     "walkInCustomer": "Umuguzi w'inzira",
     "items": "ibintu",
     "completed": "BYARANGIYE",
-    "refunded": "BYASUBIJWE"
+    "refunded": "BYASUBIJWE",
+    "sale_completed": "✅ Igicuruzwa cyakiriye!",
+    "credit_sale_recorded": "✅ Igicuruzwa cy’ikarita cyakiriye!",
+    "total_amount": "Imezi yose: ₣{{amount}}",
+    "down_payment_made": "{{customerName}} ayahisemo ₣{{downPayment}}. Ayasigaye kuhisamo: ₣{{balance}}",
+    "full_credit_owed": "{{customerName}} ushaka gukurura ₣{{amount}}"
   },
   "profile": {
     "title": "Umwirondoro",
