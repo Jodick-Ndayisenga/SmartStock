@@ -8,6 +8,10 @@ import { View } from 'react-native';
 export default function TabLayout() {
   const { isDark } = useTheme();
 
+  // ✅ NO NEED for ProtectedRoute here.
+  // If the user reaches this file, app/_layout.tsx has already verified 
+  // they are Authenticated AND have a Shop.
+
   return (
     <View style={{ flex: 1, backgroundColor: isDark ? '#0f172a' : '#ffffff' }}>
       <Tabs

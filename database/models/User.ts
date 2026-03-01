@@ -17,6 +17,7 @@ export class User extends BaseModel {
   @text('phone') phone?: string;
   @text('email') email?: string;
   @text("password") password?: string;
+  @field('photo_url') imageUrl?: string;
   @field('is_owner') isOwner!: boolean;
 
   // Relations

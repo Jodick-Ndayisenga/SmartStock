@@ -23,6 +23,9 @@ import { StockStatusBadge } from '@/components/ui/StockStatusBadge';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'expo-router';
+// Top of file
+import { withObservables } from '@nozbe/watermelondb/react'; // ✅ ADD THIS
+import { useMemo } from 'react'; // ✅ ADD THIS (for performance)
 ;
 
 // Models & Types
@@ -72,7 +75,7 @@ export default function ProductsScreen() {
           .fetch();
 
 
-          console.log('Active products count:', activeProducts.length);
+          //console.log('Active products count:', activeProducts.length);
 
         // Get products as WatermelonDB Model instances
         console.log('Loading products for shop ID:', currentShop.id);
@@ -606,7 +609,7 @@ export default function ProductsScreen() {
               action={
                 filter === 'all' && !searchQuery ? {
                   label: "Add products from template",
-                  onPress: () => router.push('/templates-products')
+                  onPress: () => router.push('/add-product')
                 } : undefined
               }
               className="py-16"

@@ -179,7 +179,7 @@ export const PressableCard = React.forwardRef<View, PressableCardProps>(
     const variantClasses = {
       default: 'bg-surface dark:bg-dark-surface',
       outlined: 'border border-border dark:border-dark-border bg-surface dark:bg-dark-surface',
-      filled: 'bg-surface-muted dark:bg-dark-surface-muted',
+      filled: 'bg-surface-muted dark:bg-dark-surface-muted text-foreground dark:text-dark-foreground',
       elevated: 'bg-surface dark:bg-dark-surface shadow-card dark:shadow-none active:shadow-soft',
     };
 

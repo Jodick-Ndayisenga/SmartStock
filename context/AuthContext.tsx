@@ -16,29 +16,33 @@ interface AuthContextValue {
   memberships: Membership[];
   loading: boolean;
   isFirstTime: boolean;
-  hasSeeds: Record<string, boolean>; // 👈 store shopId → boolean
-  updateHasSeeds: (shopId: string, hasSeedValue: boolean) => Promise<void>; // ✅ changed signature
+  hasSeeds: Record<string, boolean>;
+  updateHasSeeds: (shopId: string, hasSeedValue: boolean) => Promise<void>;
   login: (phone: string, password: string) => Promise<{ status: string } | undefined>;
   logout: () => Promise<void>;
   switchShop: (shopId: string) => Promise<void>;
   skipOnboarding: () => Promise<void>;
-  removeShop:() => Promise<void>;
+  removeShop: () => Promise<void>;
   completeOnboarding: () => Promise<void>;
   setCurrentShop: (shop: Shop) => void;
-   // 👇 add these two:
   setUser: (user: User | null) => void;
   handleUserLogin: (user: User) => Promise<void>;
-  hasSeedsForCurrentShop:  boolean;
+  hasSeedsForCurrentShop: boolean;
+  
+  // NEW: Authentication control properties
+  isAuthenticated: boolean;
+  sessionValidated: boolean;
+  validateSession: () => Promise<boolean>;
+  clearInvalidSession: () => Promise<void>;
 
-  // selected contact for temporary use in various flows
-  // 👇 NEW: Temporary contact selection for flows like sales/purchases
+  // Temporary contact selection
   tempSelectedContact: string | null;
   setTempSelectedContact: (id: string | null) => void;
 
-  // SIMPLE Network check - Just these 3 properties
-  isConnected: boolean; // Has WiFi or mobile data enabled
-  connectionType: 'wifi' | 'cellular' | 'none' | 'unknown'; // Type of connection
-  isWifi: boolean; // Is specifically connected via WiFi
+  // Network check
+  isConnected: boolean;
+  connectionType: 'wifi' | 'cellular' | 'none' | 'unknown';
+  isWifi: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -48,7 +52,8 @@ const STORAGE_KEYS = {
   SHOP_ID: '@magasin_current_shop',
   FIRST_TIME: '@magasin_is_first_time',
   IS_FIRST_TIME: '@magasin_is_first_time',
-  HAS_SEEDS : '@magasin_has_seeds'
+  HAS_SEEDS: '@magasin_has_seeds',
+  SESSION_EXPIRY: '@magasin_session_expiry' // NEW
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -58,54 +63,117 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const [isFirstTime, setIsFirstTime] = useState(false);
   const [hasSeeds, setHasSeeds] = useState<Record<string, boolean>>({});
-  // 👇 NEW: State for temporary contact selection
   const [tempSelectedContact, setTempSelectedContact] = useState<string | null>(null);
+  
+  // NEW: Session validation state
+  const [sessionValidated, setSessionValidated] = useState(false);
+  const [sessionExpiry, setSessionExpiry] = useState<number | null>(null);
 
-  // Simple network state
+  // Network state
   const [isConnected, setIsConnected] = useState(false);
   const [connectionType, setConnectionType] = useState<'wifi' | 'cellular' | 'none' | 'unknown'>('unknown');
   const [isWifi, setIsWifi] = useState(false);
 
-  // SIMPLE Network check - No internet reachability test
+  // Computed property for authentication status
+  const isAuthenticated = !!user && sessionValidated;
+
+  // Network check
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
-      // Just check if device has network interface active
       setIsConnected(state.isConnected ?? false);
-      
-      // Check connection type
       const type = state.type;
-      console.log("Connection type:", type);
       if (type === 'wifi' || type === 'cellular' || type === 'none') {
         setConnectionType(type);
       } else {
         setConnectionType('unknown');
       }
-      
-      // Check if specifically WiFi
       setIsWifi(state.type === 'wifi');
     });
 
     return () => unsubscribe();
   }, []);
 
-  // Optional: Clear temp selection on shop change
+  // Clear temp selection on shop change
   useEffect(() => {
     if (currentShop) {
       setTempSelectedContact(null);
     }
   }, [currentShop]);
 
+  // NEW: Session validation function
+  const validateSession = async (): Promise<boolean> => {
+    try {
+      // Check if we have a saved user
+      const savedUid = await AsyncStorage.getItem(STORAGE_KEYS.USER_UID);
+      if (!savedUid) {
+        setSessionValidated(false);
+        return false;
+      }
 
-  // In the init function, fix the logic:
+      // Check session expiry
+      const expiry = await AsyncStorage.getItem(STORAGE_KEYS.SESSION_EXPIRY);
+      if (expiry) {
+        const expiryTime = parseInt(expiry);
+        setSessionExpiry(expiryTime);
+        
+        if (Date.now() > expiryTime) {
+          console.log('Session expired');
+          await clearInvalidSession();
+          setSessionValidated(false);
+          return false;
+        }
+      }
+
+      // Verify user still exists in database
+      if (user) {
+        const userExists = await database.collections
+          .get<User>('users')
+          .find(user.id)
+          .catch(() => null);
+
+        if (!userExists) {
+          console.log('Session invalid: User no longer exists');
+          await clearInvalidSession();
+          setSessionValidated(false);
+          return false;
+        }
+      }
+
+      setSessionValidated(true);
+      return true;
+    } catch (error) {
+      console.error('Session validation failed:', error);
+      setSessionValidated(false);
+      return false;
+    }
+  };
+
+  // NEW: Clear invalid session
+  const clearInvalidSession = async () => {
+    setUser(null);
+    setCurrentShop(null);
+    setMemberships([]);
+    setSessionValidated(false);
+    setSessionExpiry(null);
+    
+    await AsyncStorage.multiRemove([
+      STORAGE_KEYS.USER_UID,
+      STORAGE_KEYS.SHOP_ID,
+      STORAGE_KEYS.SESSION_EXPIRY
+    ]);
+  };
+
+  // Enhanced init function with session validation
   useEffect(() => {
     const init = async () => {
       setLoading(true);
       try {
-        const [savedUid, savedShopId, firstTimeFlag, savedHasSeeds] = await Promise.all([
+        const [savedUid, savedShopId, firstTimeFlag, savedHasSeeds, savedExpiry] = await Promise.all([
           AsyncStorage.getItem(STORAGE_KEYS.USER_UID),
           AsyncStorage.getItem(STORAGE_KEYS.SHOP_ID),
           AsyncStorage.getItem(STORAGE_KEYS.FIRST_TIME),
-          AsyncStorage.getItem(STORAGE_KEYS.HAS_SEEDS)
+          AsyncStorage.getItem(STORAGE_KEYS.HAS_SEEDS),
+          AsyncStorage.getItem(STORAGE_KEYS.SESSION_EXPIRY)
         ]);
 
         // Parse hasSeeds
@@ -118,14 +186,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
 
+        // Set session expiry if exists
+        if (savedExpiry) {
+          setSessionExpiry(parseInt(savedExpiry));
+        }
+
         // Check if it's the first time
-        // If FIRST_TIME doesn't exist in storage OR it's 'true', show onboarding
         const showOnboarding = !firstTimeFlag || firstTimeFlag === 'true';
         setIsFirstTime(showOnboarding);
 
-        //console.log(savedShopId)
-        // update shop using savedShopId
-
+        // Load shop if exists
         if (savedShopId) {
           try {
             const shop = await database.collections.get<Shop>('shops').find(savedShopId);
@@ -146,21 +216,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           await AsyncStorage.setItem(STORAGE_KEYS.FIRST_TIME, 'true');
         }
 
-        // If we should skip onboarding (user exists or onboarding completed), load user
+        // If we should skip onboarding, load user and validate session
         if (!showOnboarding && savedUid) {
-          // Load user logic...
           const userCollection = database.collections.get<User>('users');
           const foundUsers = await userCollection.query(Q.where('firebase_uid', savedUid)).fetch();
 
           if (foundUsers.length > 0) {
             const localUser = foundUsers[0];
             setUser(localUser);
-            // ... rest of user loading logic
+            
+            // Validate session after setting user
+            await validateSession();
+            
+            // Load memberships
+            const membershipCollection = database.collections.get<Membership>('memberships');
+            const userMemberships = await membershipCollection.query(Q.where('user_id', localUser.id)).fetch();
+            setMemberships(userMemberships);
+          } else {
+            // User not found in DB, clear invalid session
+            await clearInvalidSession();
           }
+        } else {
+          // No saved user, session is invalid
+          setSessionValidated(false);
         }
 
       } catch (err) {
         console.error('Auth init failed:', err);
+        await clearInvalidSession();
       } finally {
         setLoading(false);
       }
@@ -169,27 +252,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     init();
   }, []);
 
-
-
-  // 🔹 Login logic
+  // Enhanced login logic with session expiry
   const login = async (phone: string, password: string) => {
     try {
-      const user = await localAuth.loginUserLocal(phone, password);
+      const result = await localAuth.loginUserLocal(phone, password);
 
-      if (user.status === 'success' && user.user ) {
-      await AsyncStorage.setItem(STORAGE_KEYS.USER_UID, user.user.firebaseUid);
-      await AsyncStorage.setItem(STORAGE_KEYS.IS_FIRST_TIME, 'false');
-      await handleUserLogin(user.user);
-
-        return { status: 'success' }
+      if (result.status === 'success' && result.user) {
+        // Set session expiry (7 days from now)
+        const expiryTime = Date.now() + (7 * 24 * 60 * 60 * 1000);
+        await AsyncStorage.setItem(STORAGE_KEYS.SESSION_EXPIRY, expiryTime.toString());
+        setSessionExpiry(expiryTime);
         
-      }
-      else if(user.status === 'user_not_found') {
-        return { status: 'user_not_found' }
-      }else if(user.status === 'invalid_password') {
-        return { status: 'invalid_password' }
-      }else{
-        return {status:"Error logging in"}
+        await AsyncStorage.setItem(STORAGE_KEYS.USER_UID, result.user.firebaseUid);
+        await AsyncStorage.setItem(STORAGE_KEYS.IS_FIRST_TIME, 'false');
+        await handleUserLogin(result.user);
+        
+        // Validate session after login
+        await validateSession();
+
+        return { status: 'success', success:true };
+      } else if (result.status === 'user_not_found') {
+        return { status: 'user_not_found' };
+      } else if (result.status === 'invalid_password') {
+        return { status: 'invalid_password' };
+      } else {
+        return { status: "Error logging in" };
       }
     } catch (err) {
       console.error('Login error:', err);
@@ -202,53 +289,54 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(user);
     const membershipCollection = database.collections.get<Membership>('memberships');
     const userMemberships = await membershipCollection.query(Q.where('user_id', user.id)).fetch();
-    setMemberships(userMemberships);
-
+  
     if (userMemberships.length > 0) {
+      setMemberships(userMemberships);
       const shop = await database.collections.get<Shop>('shops').find(userMemberships[0].shopId);
       setCurrentShop(shop);
       await AsyncStorage.setItem(STORAGE_KEYS.SHOP_ID, shop.id);
     }
+    
+    setSessionValidated(true);
   };
 
   // 🔹 Mark onboarding complete
   const completeOnboarding = async () => {
-  try {
-    await AsyncStorage.setItem(STORAGE_KEYS.FIRST_TIME, 'false');
-    setIsFirstTime(false);
-    console.log('Onboarding completed');
-  } catch (error) {
-    console.error('Error completing onboarding:', error);
-  }
-};
+    try {
+      await AsyncStorage.setItem(STORAGE_KEYS.FIRST_TIME, 'false');
+      setIsFirstTime(false);
+      console.log('Onboarding completed');
+    } catch (error) {
+      console.error('Error completing onboarding:', error);
+    }
+  };
 
-  // 🔹 Logout
+  // Enhanced logout
   const logout = async () => {
-  try {
-    setLoading(true);
+    try {
+      setLoading(true);
 
-    // Clear in-memory state
-    setUser(null);
-    setCurrentShop(null);
-    setMemberships([]);
+      // Clear in-memory state
+      setUser(null);
+      setCurrentShop(null);
+      setMemberships([]);
+      setSessionValidated(false);
+      setSessionExpiry(null);
 
-    // Clear persisted session data
-    await AsyncStorage.multiRemove([
-      STORAGE_KEYS.USER_UID,
-      STORAGE_KEYS.SHOP_ID
-    ]);
+      // Clear persisted session data
+      await AsyncStorage.multiRemove([
+        STORAGE_KEYS.USER_UID,
+        STORAGE_KEYS.SHOP_ID,
+        STORAGE_KEYS.SESSION_EXPIRY
+      ]);
 
-    // 🚫 DO NOT touch FIRST_TIME here
-    // First-time onboarding should only run once per install
-
-    router.replace('/(auth)/login');
-  } catch (err) {
-    console.error('Logout failed:', err);
-  } finally {
-    setLoading(false);
-  }
-};
-
+      router.replace('/(auth)/login');
+    } catch (err) {
+      console.error('Logout failed:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // 🔹 Switch shop
   const switchShop = async (shopId: string) => {
@@ -257,38 +345,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await AsyncStorage.setItem(STORAGE_KEYS.SHOP_ID, shopId);
   };
 
-    // Add to AuthContext.tsx
-    const skipOnboarding = async () => {
-      try {
-        // Mark onboarding as completed
-        await AsyncStorage.setItem(STORAGE_KEYS.FIRST_TIME, 'false');
-        setIsFirstTime(false);
-        console.log('Onboarding skipped successfully');
-      } catch (error) {
-        console.error('Error skipping onboarding:', error);
-      }
-    };
+  // 🔹 Skip onboarding
+  const skipOnboarding = async () => {
+    try {
+      await AsyncStorage.setItem(STORAGE_KEYS.FIRST_TIME, 'false');
+      setIsFirstTime(false);
+      console.log('Onboarding skipped successfully');
+    } catch (error) {
+      console.error('Error skipping onboarding:', error);
+    }
+  };
 
+  // Update has seeds
+  const updateHasSeeds = async (shopId: string, hasSeedValue: boolean) => {
+    const updated = { ...hasSeeds, [shopId]: hasSeedValue };
+    setHasSeeds(updated);
+    await AsyncStorage.setItem(STORAGE_KEYS.HAS_SEEDS, JSON.stringify(updated));
+  };
 
-  // update has seeds 
+  const hasSeedsForCurrentShop = currentShop ? hasSeeds[currentShop.id] || false : false;
 
-      const updateHasSeeds = async (shopId: string, hasSeedValue: boolean) => {
-      // update state immutably
-      const updated = { ...hasSeeds, [shopId]: hasSeedValue };
-      setHasSeeds(updated);
-
-      // persist
-      await AsyncStorage.setItem(STORAGE_KEYS.HAS_SEEDS, JSON.stringify(updated));
-    };
-
-    const hasSeedsForCurrentShop = currentShop ? hasSeeds[currentShop.id] || false : false;
-
-    const removeShop = async () => {
-      setCurrentShop(null);
-      await AsyncStorage.removeItem(STORAGE_KEYS.SHOP_ID);
-    };
-
-
+  const removeShop = async () => {
+    setCurrentShop(null);
+    await AsyncStorage.removeItem(STORAGE_KEYS.SHOP_ID);
+  };
 
   return (
     <AuthContext.Provider
@@ -307,16 +387,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         completeOnboarding,
         setCurrentShop,
         setUser,
-        handleUserLogin, // 👈 new
+        handleUserLogin,
         removeShop,
-        skipOnboarding, // when user skips onboarding page
+        skipOnboarding,
+        
+        // NEW: Authentication control values
+        isAuthenticated,
+        sessionValidated,
+        validateSession,
+        clearInvalidSession,
 
-        // Simple network properties
+        // Network properties
         isConnected,
         connectionType,
         isWifi,
-        tempSelectedContact,        // 👈 Expose getter
-        setTempSelectedContact,     // 👈 Expose setter
+        
+        // Temporary contact
+        tempSelectedContact,
+        setTempSelectedContact,
       }}
     >
       {children}

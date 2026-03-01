@@ -318,8 +318,6 @@ export default function DashboardScreen() {
   const { currentShop, user } = useAuth();
   const { showNotification } = useNotification();
   const isDark = colorScheme === 'dark';
-
-
   // Animation values - FIXED: Create animated event handler properly
   const scrollY = useRef(new Animated.Value(0)).current;
   
@@ -429,7 +427,7 @@ export default function DashboardScreen() {
           />
         }
       >
-        <View className="p-4">
+        <View className="py-4 px-2">
           {/* Welcome Message with spacing */}
           <View className="mb-8">
             <ThemedText variant="heading" size="3xl" className="font-bold">
@@ -483,34 +481,34 @@ export default function DashboardScreen() {
           </View>
 
           {/* Row 1: Revenue Distribution + Sales Trend with proper gap */}
-          <View className="flex-row flex-wrap mb-8">
+          {/* <View className="flex-row flex-wrap mb-8">
             <View className="w-[100%] mr-[4%]">
               <RevenueDistributionWidget />
             </View>
             <View className="w-[100%] mt-4">
               <SalesTrendWidget />
             </View>
-          </View>
+          </View> */}
 
           {/* Row 2: Payment Methods + Stock Health with proper gap */}
-          <View className="flex-row flex-wrap mb-8">
+          {/* <View className="flex-row flex-wrap mb-8">
             <View className="w-[100%] mr-[4%] mt-4">
               <PaymentMethodsWidget />
             </View>
             <View className="w-[48%]">
               <StockHealthWidget />
             </View>
-          </View>
+          </View> */}
 
           {/* Credit Health - Full width with spacing */}
-          <View className="mb-8">
+          {/* <View className="mb-8">
             <CreditHealthWidget />
-          </View>
+          </View> */}
 
           {/* Category Distribution - Full width with spacing */}
-          <View className="mb-8">
+          {/* <View className="mb-8">
             <CategoryDistributionWidget />
-          </View>
+          </View> */}
 
           {/* Additional spacing for bottom navigation - increased for better scroll experience */}
           <View className="h-24" />

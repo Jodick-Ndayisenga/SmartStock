@@ -306,7 +306,9 @@ export default function SelectShopScreen() {
         </View>
 
         {/* Main Title Section */}
-        <View className="mb-6">
+        {
+          shops.length > 0 && (
+            <View className="mb-6">
           <Text className={`text-4xl font-bold mb-3 ${isDark ? 'text-dark-text' : 'text-text'}`}>
             Select Your Shop 🏪
           </Text>
@@ -314,9 +316,13 @@ export default function SelectShopScreen() {
             Choose a shop to manage inventory, sales, and analytics
           </Text>
         </View>
+          )
+        }
 
         {/* Stats Cards - Fixed width issue */}
-        <View className="flex-row justify-between w-full mb-6">
+        {
+          shops.length > 0 && (
+            <View className="flex-row justify-between w-full mb-6">
           {/* Total Shops Card */}
           <View className={`
             w-[48%] rounded-2xl p-5
@@ -358,6 +364,8 @@ export default function SelectShopScreen() {
             </Text>
           </View>
         </View>
+          )
+        }
       </Animated.View>
 
       {/* Shop List */}

@@ -10,7 +10,7 @@ const syncColumns = [
 ];
 
 export default appSchema({
-  version: 3,
+  version: 2,
   tables: [
     // ─── SHOP ───────────────────────────────────────
     tableSchema({
@@ -143,6 +143,7 @@ export default appSchema({
         { name: 'display_name', type: 'string' as const, isOptional: true },
         { name: 'email', type: 'string' as const, isIndexed: true },
         { name: 'phone', type: 'string' as const, isOptional: true },
+        { name: 'photo_url', type: 'string' as const, isOptional: true },
         { name:"password", type:"string" as const, isOptional: true},
         { name: 'is_owner', type: 'boolean' as const },
         { name: 'created_at', type: 'number' as const },

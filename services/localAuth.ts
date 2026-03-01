@@ -32,6 +32,7 @@ export interface LoginResult {
   memberships?: Membership[]
   shops?: Shop[]
   error?: any
+  success?:boolean
 }
 
 // ─── Helper: Enhanced UUID ──────────────────────────────────
@@ -54,10 +55,12 @@ export async function registerUser({
 }): Promise<User> {
   try {
     return database.write(async () => {
+      const hashedPassword = password ? await hashPassword(password) : undefined
+
     const newUser = await users.create(u => {
       u.displayName = displayName
       if (phone) u.phone = phone.trim()
-      if (password) u.password = password
+      if (password) u.password = hashedPassword
       u.firebaseUid = generateEnhancedUUID()
       u.isOwner = true
       u._tableStatus = 'created'

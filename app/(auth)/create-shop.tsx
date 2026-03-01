@@ -13,10 +13,10 @@ import database from '@/database';
 import { useTranslation } from 'react-i18next';
 import { Q } from '@nozbe/watermelondb';
 import { Ionicons } from '@expo/vector-icons';
-// add these imports (near other imports)
-//import { seedShopProducts } from '@/utils/dbSeeds';
+//import * as Location from 'expo-location';
+import * as Haptics from 'expo-haptics';
 import SeedModal from '@/components/SeedModal';
-
+import CustomDialog from '@/components/ui/CustomDialog';
 
 // Components
 import PremiumHeader from '@/components/layout/PremiumHeader';
@@ -31,25 +31,80 @@ import { Badge } from '@/components/ui/Badge';
 import { Shop } from '@/database/models/Shop';
 import { Setting } from '@/database/models/Setting';
 import { Membership } from '@/database/models/Membership';
+import { CashAccount } from '@/database/models/CashAccount';
 import { generateEnhancedUUID } from '@/utils/getModelId';
 
 // Context
 import { useAuth } from '@/context/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+// Helper functions for generating branch codes and shop names
+const generateBranchCode = (shopName: string = ''): string => {
+  // Extract first 3 letters of shop name (uppercase) or use 'SHOP'
+  const prefix = shopName
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z]/g, '') // Remove non-letters
+    .slice(0, 3);
+  
+  const validPrefix = prefix.length >= 2 ? prefix : 'SHO';
+  
+  // Add random numbers and timestamp
+  const timestamp = Date.now().toString().slice(-4);
+  const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+  
+  return `${validPrefix}-${timestamp}${random}`;
+};
+
+const generateShopNameSuggestion = (userName: string = ''): string => {
+  const names = [
+    `${userName.split(' ')[0]}'s Store`,
+    `${userName.split(' ')[0]} Enterprise`,
+    `${userName.split(' ')[0]} Shop`,
+    'My Business',
+    'Local Store',
+    'Community Shop',
+  ];
+  
+  // Pick a random suggestion
+  return names[Math.floor(Math.random() * names.length)];
+};
+
+// const getLocation = async () => {
+//   let { status } = await Location.requestForegroundPermissionsAsync();
+//       if (status !== 'granted') {
+//         //setErrorMsg('Permission to access location was denied');
+//         return '';
+//       }else{
+//         let Userlocation = await Location.getCurrentPositionAsync({});
+//         console.log("📍 Current Location:", JSON.stringify(Userlocation));
+//         return JSON.stringify(Userlocation) || '';
+//       }
+// };
+
 export default function CreateShopScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id?: string }>();
   const { t } = useTranslation();
-  const { user,   switchShop, removeShop } = useAuth();
+  const { user, switchShop, removeShop } = useAuth();
 
   const [loading, setLoading] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [shopToDelete, setShopToDelete] = useState<Shop | null>(null);
+  const [isGettingLocation, setIsGettingLocation] = useState(false);
+  const [showSeedModal, setShowSeedModal] = useState(false);
+  
+  // Dialog states
+  const [showLocationDialog, setShowLocationDialog] = useState(false);
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false);
+  const [showErrorDialog, setShowErrorDialog] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [dialogAction, setDialogAction] = useState<{ onConfirm?: () => void }>({});
+
   const [formData, setFormData] = useState({
     name: '',
     location: '',
-    phone: '',
+    phone: user?.phone || '',
     branchCode: '',
     currency: 'BIF',
     language: 'fr',
@@ -57,9 +112,74 @@ export default function CreateShopScreen() {
   });
 
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
-  // seeding state
-const [showSeedModal, setShowSeedModal] = useState(false);
 
+
+
+  // 📍 Request location permission and get current location
+  // const getCurrentLocation = async () => {
+  //   try {
+  //     setIsGettingLocation(true);
+  //     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+  //     const { status } = await Location.requestForegroundPermissionsAsync();
+      
+  //     if (status !== 'granted') {
+  //       setShowLocationDialog(true);
+  //       return;
+  //     }
+
+  //     const location = await Location.getCurrentPositionAsync({
+  //       accuracy: Location.Accuracy.High,
+  //     });
+
+  //     // Get address details
+  //     const [address] = await Location.reverseGeocodeAsync({
+  //       latitude: location.coords.latitude,
+  //       longitude: location.coords.longitude,
+  //     });
+
+  //     if (address) {
+  //       const locationString = address 
+  //         ? [
+  //             address.street,
+  //             address.city,
+  //             address.region,
+  //             address.country,
+  //           ].filter(Boolean).join(', ')
+  //         : `${location.coords.latitude.toFixed(6)}, ${location.coords.longitude.toFixed(6)}`;
+        
+  //       setFormData(prev => ({ ...prev, location: locationString }));
+  //       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  //     }
+  //   } catch (error) {
+  //     console.error('Location error:', error);
+  //     setErrorMessage('Failed to get your location. Please enter manually.');
+  //     setShowErrorDialog(true);
+  //   } finally {
+  //     setIsGettingLocation(false);
+  //   }
+  // };
+
+  // 🏷️ Generate branch code from shop name
+  const generateCodeFromName = () => {
+    if (formData.name.trim()) {
+      const newCode = generateBranchCode(formData.name);
+      setFormData(prev => ({ ...prev, branchCode: newCode }));
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } else {
+      setErrorMessage('Please enter a shop name first to generate branch code');
+      setShowErrorDialog(true);
+    }
+  };
+
+  // 💡 Suggest shop name based on user's name
+  const suggestShopName = () => {
+    if (user?.displayName) {
+      const suggestion = generateShopNameSuggestion(user.displayName);
+      setFormData(prev => ({ ...prev, name: suggestion }));
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  };
 
   // 🔍 Load shop if editing
   useEffect(() => {
@@ -68,25 +188,32 @@ const [showSeedModal, setShowSeedModal] = useState(false);
     } else {
       setIsEditMode(false);
       setShopToDelete(null);
-      // Reset form for create mode
+      
+      // Auto-suggest shop name on new form
+      const initialName = user?.displayName 
+        ? generateShopNameSuggestion(user.displayName)
+        : '';
+      
+      // Auto-generate branch code
+      const initialCode = generateBranchCode(initialName);
+      
       setFormData({
-        name: '',
-        location: '',
-        phone: '',
-        branchCode: '',
+        name: initialName,
+        location:'' ,
+        phone: user?.phone || '',
+        branchCode: initialCode,
         currency: 'BIF',
         language: 'fr',
         weekStartDay: 1,
       });
     }
-  }, [id]);
+  }, [id, user]);
 
   const loadShopForEdit = async (shopId: string) => {
     try {
       setLoading(true);
       const shop = await database.get<Shop>('shops').find(shopId);
       
-      // Extract the raw data from the shop model
       const shopData = {
         id: shop.id,
         name: shop.name,
@@ -118,7 +245,8 @@ const [showSeedModal, setShowSeedModal] = useState(false);
       });
     } catch (error) {
       console.error('Failed to load shop:', error);
-      Alert.alert(t('common.error'), t('createShop.errors.shopNotFound'));
+      setErrorMessage(t('createShop.errors.shopNotFound'));
+      setShowErrorDialog(true);
       router.back();
     } finally {
       setLoading(false);
@@ -129,6 +257,7 @@ const [showSeedModal, setShowSeedModal] = useState(false);
     const newErrors: { [key: string]: string } = {};
     if (!formData.name.trim()) newErrors.name = t('createShop.errors.shopNameRequired');
     if (!formData.location.trim()) newErrors.location = t('createShop.errors.locationRequired');
+    if (!formData.branchCode.trim()) newErrors.branchCode = 'Branch code is required';
     if (formData.phone && !/^[+]*[(]{0,1}[0-9]{1,4}[)]{0,1}[-\s\./0-9]*$/.test(formData.phone)) {
       newErrors.phone = t('createShop.errors.invalidPhone');
     }
@@ -136,11 +265,32 @@ const [showSeedModal, setShowSeedModal] = useState(false);
     return Object.keys(newErrors).length === 0;
   };
 
+  // 💰 Create default cash account for the shop
+  const createDefaultCashAccount = async (shopId: string) => {
+    const cashAccountId = generateEnhancedUUID();
+    
+    await database.get<CashAccount>('cash_accounts').create(record => {
+      record._raw.id = cashAccountId;
+      record.shopId = shopId;
+      record.name = 'MAIN CASH ACCOUNT';
+      record.type = 'cash';
+      record.currentBalance = 0;
+      record.openingBalance = 0;
+      record.currency = formData.currency;
+      record.isActive = true;
+      record.isDefault = true;
+      record.notes = 'Default cash account';
+    });
+
+    console.log('✅ Default cash account created for shop:', shopId);
+  };
+
   // ✅ Handle CREATE or UPDATE
   const handleSaveShop = async () => {
     if (!validateForm()) return;
     if (!user) {
-      Alert.alert(t('common.error'), t('createShop.errors.userNotFound'));
+      setErrorMessage(t('createShop.errors.userNotFound'));
+      setShowErrorDialog(true);
       return;
     }
 
@@ -185,17 +335,21 @@ const [showSeedModal, setShowSeedModal] = useState(false);
             });
           }
 
-          Alert.alert(t('common.success'), t('createShop.success.updated'));
-          router.back();
+          setShowSuccessDialog(true);
+          setDialogAction({
+            onConfirm: () => {
+              setShowSuccessDialog(false);
+              router.back();
+            }
+          });
         } else {
           // ➕ CREATE new shop
           const shopId = generateEnhancedUUID();
-          const branchCode = formData.branchCode.trim() || `SHOP${Date.now().toString().slice(-6)}`;
+          const branchCode = formData.branchCode.trim() || generateBranchCode(formData.name);
 
           const shop = await database.get<Shop>('shops').create(record => {
-            record.shopId = shopId;
+            record._raw.id = shopId;
             record.name = formData.name.trim();
-            record.shopId = shopId;
             record.ownerId = user.id;
             record.location = formData.location.trim();
             record.phone = formData.phone.trim() || undefined;
@@ -222,19 +376,28 @@ const [showSeedModal, setShowSeedModal] = useState(false);
             record.joinedAt = Date.now();
           });
 
-          //setCurrentShop(shop);
-          switchShop(shop.id);
+          // 💰 Create default cash account
+          await createDefaultCashAccount(shop.id);
 
-         
-          setShowSeedModal(true);
+          switchShop(shop.id);
+          
+          setShowSuccessDialog(true);
+          setDialogAction({
+            onConfirm: () => {
+              setShowSuccessDialog(false);
+              setShowSeedModal(true);
+            }
+          });
         }
       });
     } catch (error) {
       console.error('Error saving shop:', error);
-      Alert.alert(
-        t('common.error'), 
-        isEditMode ? t('createShop.errors.updateFailed') : t('createShop.errors.creationFailed')
+      setErrorMessage(
+        isEditMode 
+          ? t('createShop.errors.updateFailed') 
+          : t('createShop.errors.creationFailed')
       );
+      setShowErrorDialog(true);
     } finally {
       setLoading(false);
     }
@@ -243,22 +406,15 @@ const [showSeedModal, setShowSeedModal] = useState(false);
   // 🗑️ Delete shop (with confirmation) - Only for owners
   const handleDeleteShop = () => {
     if (!shopToDelete || shopToDelete.ownerId !== user?.id) {
-      Alert.alert(t('common.error'), t('createShop.errors.deleteNotAllowed'));
+      setErrorMessage(t('createShop.errors.deleteNotAllowed'));
+      setShowErrorDialog(true);
       return;
     }
 
-    Alert.alert(
-      t('createShop.deleteTitle'),
-      t('createShop.deleteConfirm'),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('common.delete'),
-          style: 'destructive',
-          onPress: confirmDeleteShop,
-        },
-      ]
-    );
+    setShowLocationDialog(true);
+    setDialogAction({
+      onConfirm: confirmDeleteShop
+    });
   };
 
   const confirmDeleteShop = async () => {
@@ -288,14 +444,18 @@ const [showSeedModal, setShowSeedModal] = useState(false);
           .query(Q.where('shop_id', shopToDelete.id))
           .fetch();
 
+        const cashAccounts = await database.get<CashAccount>('cash_accounts')
+          .query(Q.where('shop_id', shopToDelete.id))
+          .fetch();
 
         console.log({
           "Deleting Found settings: ": settings.length,
           "Deleting Found memberships: ": memberships.length,
           "Deleting Found products: ": products.length,
           "Deleting Found stockMovements: ": stockMovements.length,
-          "Deleting Found contacts: ": contacts.length
-        })
+          "Deleting Found contacts: ": contacts.length,
+          "Deleting Found cashAccounts: ": cashAccounts.length
+        });
 
         // Delete all related records
         await Promise.all([
@@ -304,26 +464,27 @@ const [showSeedModal, setShowSeedModal] = useState(false);
           ...products.map(p => p.destroyPermanently()),
           ...stockMovements.map(m => m.destroyPermanently()),
           ...contacts.map(c => c.destroyPermanently()),
+          ...cashAccounts.map(c => c.destroyPermanently()),
           shopToDelete.destroyPermanently(),
         ]);
       });
-      //setCurrentShop(null);
-
 
       await removeShop();
-
       await AsyncStorage.removeItem('@magasin_current_shop');
       await AsyncStorage.removeItem('@magasin_has_seeds');
       
-      //Alert.alert(t('common.success'), t('createShop.success.deleted'));
-      
-      
-      // If we deleted the current shop, navigate to shop list
-      router.push('/(tabs)');
+      setShowSuccessDialog(true);
+      setDialogAction({
+        onConfirm: () => {
+          setShowSuccessDialog(false);
+          router.push('/(tabs)');
+        }
+      });
       
     } catch (error) {
       console.error('Delete error:', error);
-      Alert.alert(t('common.error'), t('createShop.errors.deleteFailed'));
+      setErrorMessage(t('createShop.errors.deleteFailed'));
+      setShowErrorDialog(true);
     } finally {
       setLoading(false);
     }
@@ -361,7 +522,7 @@ const [showSeedModal, setShowSeedModal] = useState(false);
           contentContainerStyle={{ paddingBottom: isEditMode ? 160 : 100 }}
         >
           <View className="p-4 mb-6">
-            {/* Welcome Card */}
+            {/* Welcome Card with Quick Actions */}
             {!isEditMode && (
               <Card className="mb-6 bg-brand/5 border-brand/20">
                 <CardContent className="p-4">
@@ -374,6 +535,34 @@ const [showSeedModal, setShowSeedModal] = useState(false);
                       <ThemedText variant="muted">
                         {t('createShop.welcomeDescription')}
                       </ThemedText>
+                      
+                      {/* Quick Action Buttons */}
+                      <View className="flex-row mt-3 gap-2">
+                        <TouchableOpacity
+                          onPress={suggestShopName}
+                          className="flex-row items-center bg-surface-soft dark:bg-dark-surface-soft px-3 py-2 rounded-lg"
+                        >
+                          <Ionicons name="bulb-outline" size={16} color="#0ea5e9" />
+                          <ThemedText variant="brand" size="xs" className="ml-1">
+                            Suggest Name
+                          </ThemedText>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          //onPress={getCurrentLocation}
+                          disabled={isGettingLocation}
+                          className="flex-row items-center bg-surface-soft dark:bg-dark-surface-soft px-3 py-2 rounded-lg"
+                        >
+                          <Ionicons 
+                            name={isGettingLocation ? "locate" : "location-outline"} 
+                            size={16} 
+                            color="#0ea5e9" 
+                          />
+                          <ThemedText variant="brand" size="xs" className="ml-1">
+                            {isGettingLocation ? 'Getting...' : 'Get Location'}
+                          </ThemedText>
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   </View>
                 </CardContent>
@@ -407,18 +596,32 @@ const [showSeedModal, setShowSeedModal] = useState(false);
                   label={t('createShop.shopName')}
                   placeholder={t('createShop.shopNamePlaceholder')}
                   value={formData.name}
-                  onChangeText={(text) => updateFormData('name', text)}
+                  onChangeText={(text) => {
+                    updateFormData('name', text);
+                  }}
                   error={errors.name}
                   autoFocus={!isEditMode}
+                  rightIcon="bulb-outline"
+                  onRightIconPress={suggestShopName}
                 />
 
-                <Input
-                  label={t('createShop.location')}
-                  placeholder={t('createShop.locationPlaceholder')}
-                  value={formData.location}
-                  onChangeText={(text) => updateFormData('location', text)}
-                  error={errors.location}
-                />
+                <View>
+                  <Input
+                    label={t('createShop.location')}
+                    placeholder={t('createShop.locationPlaceholder')}
+                    value={formData.location}
+                    onChangeText={(text) => updateFormData('location', text)}
+                    error={errors.location}
+                    rightIcon={isGettingLocation ? "locate" : "location-outline"}
+                   // onRightIconPress={getCurrentLocation}
+                    //rightIconDisabled={isGettingLocation}
+                  />
+                  {isGettingLocation && (
+                    <ThemedText variant="muted" size="xs" className="mt-1">
+                      Getting your current location...
+                    </ThemedText>
+                  )}
+                </View>
 
                 <Input
                   label={t('createShop.phone')}
@@ -429,12 +632,22 @@ const [showSeedModal, setShowSeedModal] = useState(false);
                   keyboardType="phone-pad"
                 />
 
-                <Input
-                  label={t('createShop.branchCode')}
-                  placeholder={t('createShop.branchCodePlaceholder')}
-                  value={formData.branchCode}
-                  onChangeText={(text) => updateFormData('branchCode', text)}
-                />
+                <View>
+                  <Input
+                    label={t('createShop.branchCode')}
+                    placeholder={t('createShop.branchCodePlaceholder')}
+                    value={formData.branchCode}
+                    onChangeText={(text) => updateFormData('branchCode', text)}
+                    error={errors.branchCode}
+                    rightIcon="refresh-outline"
+                    onRightIconPress={generateCodeFromName}
+                  />
+                  <ThemedText variant="muted" size="xs" className="mt-1">
+                    {formData.name 
+                      ? `Suggested: ${generateBranchCode(formData.name)}` 
+                      : 'Enter a name to get branch code suggestions'}
+                  </ThemedText>
+                </View>
               </CardContent>
             </Card>
 
@@ -465,7 +678,6 @@ const [showSeedModal, setShowSeedModal] = useState(false);
                           <ThemedText 
                             variant={formData.currency === currency ? "soft" : "label"}
                             size="sm"
-                            className="text-error"
                           >
                             {currency}
                           </ThemedText>
@@ -554,7 +766,6 @@ const [showSeedModal, setShowSeedModal] = useState(false);
                     { icon: '🌐', text: t('createShop.feature4') },
                   ].map((feature, index) => (
                     <View key={index} className="flex-row items-center mb-3 last:mb-0">
-                      {/* <Text className="text-lg mr-3">{feature.icon}</Text> */}
                       <ThemedText variant="muted" size="sm" className="flex-1">
                         {feature.text}
                       </ThemedText>
@@ -566,17 +777,12 @@ const [showSeedModal, setShowSeedModal] = useState(false);
           </View>
         </ScrollView>
 
-       {
-        showSeedModal && (
-           <SeedModal
-          visible={showSeedModal}
-          //progress={seedProgress}
-          onClose={() => setShowSeedModal(false)}
-          
-        />
-        )
-       }
-
+        {showSeedModal && (
+          <SeedModal
+            visible={showSeedModal}
+            onClose={() => setShowSeedModal(false)}
+          />
+        )}
 
         {/* Fixed Action Buttons */}
         <View className="absolute bottom-0 left-0 right-0 p-6 bg-surface dark:bg-dark-surface border-t border-border">
@@ -622,6 +828,112 @@ const [showSeedModal, setShowSeedModal] = useState(false);
           </ThemedText>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Location Permission Dialog */}
+      <CustomDialog
+        visible={showLocationDialog && !dialogAction.onConfirm}
+        title="Location Permission"
+        description="We need your location to auto-fill your shop address. Would you like to enable location access?"
+        variant="info"
+        icon="location-outline"
+        showCancel={true}
+        cancelLabel="Enter Manually"
+        onCancel={() => setShowLocationDialog(false)}
+        actions={[
+          {
+            label: 'Enable Location',
+            variant: 'default',
+            onPress: () => {
+              setShowLocationDialog(false);
+              //getCurrentLocation();
+            },
+          },
+        ]}
+        onClose={() => setShowLocationDialog(false)}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <CustomDialog
+        visible={showLocationDialog && dialogAction.onConfirm !== undefined}
+        title={t('createShop.deleteTitle')}
+        description={t('createShop.deleteConfirm')}
+        variant="error"
+        icon="trash-outline"
+        showCancel={true}
+        cancelLabel={t('common.cancel')}
+        onCancel={() => {
+          setShowLocationDialog(false);
+          setDialogAction({});
+        }}
+        actions={[
+          {
+            label: t('common.delete'),
+            variant: 'destructive',
+            onPress: async () => {
+              setShowLocationDialog(false);
+              await dialogAction.onConfirm?.();
+              setDialogAction({});
+            },
+          },
+        ]}
+        onClose={() => {
+          setShowLocationDialog(false);
+          setDialogAction({});
+        }}
+      />
+
+      {/* Success Dialog */}
+      <CustomDialog
+        visible={showSuccessDialog}
+        title={isEditMode ? t('common.success') : t('createShop.success.created')}
+        description={isEditMode 
+          ? t('createShop.success.updated') 
+          : t('createShop.success.createdDescription')
+        }
+        variant="success"
+        icon="checkmark-circle"
+        showCancel={false}
+        actions={[
+          {
+            label: 'OK',
+            variant: 'default',
+            onPress: () => {
+              setShowSuccessDialog(false);
+              dialogAction.onConfirm?.();
+              setDialogAction({});
+            },
+          },
+        ]}
+        onClose={() => {
+          setShowSuccessDialog(false);
+          dialogAction.onConfirm?.();
+          setDialogAction({});
+        }}
+      />
+
+      {/* Error Dialog */}
+      <CustomDialog
+        visible={showErrorDialog}
+        title={t('common.error')}
+        description={errorMessage}
+        variant="error"
+        icon="alert-circle"
+        showCancel={false}
+        actions={[
+          {
+            label: 'OK',
+            variant: 'default',
+            onPress: () => {
+              setShowErrorDialog(false);
+              setErrorMessage('');
+            },
+          },
+        ]}
+        onClose={() => {
+          setShowErrorDialog(false);
+          setErrorMessage('');
+        }}
+      />
     </View>
   );
 }

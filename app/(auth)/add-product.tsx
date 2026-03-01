@@ -1686,7 +1686,7 @@ export default function AddProductScreen() {
           </View>
           <View className="mt-2 mb-8">
             <Button variant="warning" icon="arrow-forward-outline" onPress={() => router.push('/(auth)/templates-products')}>
-              Personnaliser
+              Personnaliser avec un modèle
             </Button>
           </View>
         </ScrollView>

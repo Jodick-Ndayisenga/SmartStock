@@ -10,13 +10,15 @@ import { useRouter } from 'expo-router';
 import { useColorScheme } from 'nativewind';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNotification } from '@/context/NotificationContext';
 import {
   Alert,
   ScrollView,
   Switch,
   TextInput,
   TouchableOpacity,
-  View
+  View,
+  Image
 } from 'react-native';
 
 // Components
@@ -35,6 +37,7 @@ interface ProfileData {
   phone: string;
   role: string;
   joinDate: string;
+  imageUrl?: string;
 }
 
 interface AppSettings {
@@ -54,13 +57,14 @@ export default function ProfileScreen() {
   const [open, setOpen] = React.useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const {user, logout, currentShop} = useAuth();
+  const {user, logout, currentShop, setUser} = useAuth();
   const [profile, setProfile] = useState<ProfileData>({
     displayName: '',
     email: '',
     phone: '',
     role: 'Owner',
     joinDate: '',
+    imageUrl: '',
   });
   const [settings, setSettings] = useState<AppSettings>({
     language: 'fr',
@@ -77,12 +81,19 @@ export default function ProfileScreen() {
     email: string;
     phone: string;
     password: string;
+    imageUrl?: string;
   }>({
     displayName: profile.displayName || '',
     email: profile.email || '',
     phone: profile.phone || '',
     password: '',
+    imageUrl: profile.imageUrl || '',
   });
+
+
+  //console.log(user?.imageUrl, "User image URL from DB");
+
+  const { showNotification } = useNotification();
 
   useEffect(() => {
     if (user) {
@@ -91,13 +102,11 @@ export default function ProfileScreen() {
         email: user.email || '',
         phone: user.phone || '',
         password: '',
+        imageUrl: user.imageUrl || '',
       });
     }
     
   }, [user]);
-
-
-
 
   useEffect(() => {
     loadProfileData();
@@ -140,8 +149,6 @@ export default function ProfileScreen() {
       setLoading(false);
     }
   };
-
-
   // regex to verify email 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -199,24 +206,52 @@ export default function ProfileScreen() {
       const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
       
       if (!permissionResult.granted) {
-        Alert.alert('Permission Required', 'Sorry, we need camera roll permissions to upload images.');
+        Alert.alert('Permission requise', 'Nous avons besoin d\'accéder à vos photos');
         return;
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
       });
 
-      if (!result.canceled && result.assets[0]) {
-        // In a real app, you'd upload to your server and update user profile
-        Alert.alert('Success', 'Profile image updated successfully');
+      if (!result.canceled && result.assets[0].uri) {
+
+        //console.log("Selected image:", result.assets[0].uri);
+
+
+        if(result.assets[0].uri){
+          await database.write(async () => {
+          const usr = await database.get<User>('users').find(user?.id || '');
+          if (usr) {
+            await usr.update(record => {
+              record.imageUrl = result.assets[0].uri;
+            });
+          }
+        });
+
+        setTimeout(() => {
+        showNotification({
+        type: 'success',
+        title: 'Profile Image Updated',
+        message: 'Your profile image has been updated successfully',
+      });
+    }, 1000);
+        }
+
+        
       }
     } catch (error) {
       console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to update profile image');
+      setTimeout(() => {
+        showNotification({
+        type: 'error',
+        title: 'Failed to Update Profile Image',
+        message: 'An error occurred while updating your profile image',
+      });
+    }, 1000);
+  
     } finally {
       setImageUploading(false);
     }
@@ -261,6 +296,8 @@ export default function ProfileScreen() {
       {action}
     </TouchableOpacity>
   );
+
+
 
   const SwitchSetting = ({ 
     icon, 
@@ -326,22 +363,57 @@ export default function ProfileScreen() {
           <Card variant="elevated">
             <CardContent className="p-6">
               <View className="items-center">
-                {/* Profile Image */}
+                {/* Profile Image Section */}
                 <TouchableOpacity
                   onPress={pickProfileImage}
-                  className="relative mb-4"
+                  disabled={imageUploading}
+                  activeOpacity={0.7}
+                  className="relative self-center mb-6"
                 >
-                  <View className="w-24 h-24 rounded-full bg-surface-muted dark:bg-dark-surface-muted items-center justify-center border-4 border-surface dark:border-dark-surface">
+                  {/* Main Avatar Container */}
+                  <View className="w-28 h-28 rounded-full bg-surface-muted dark:bg-dark-surface-muted items-center justify-center border-4 border-white dark:border-gray-800 shadow-lg overflow-hidden">
+                    
+                    {/* STATE 1: Loading */}
                     {imageUploading ? (
-                      <Ionicons name="refresh" size={32} color="#94a3b8" />
+                      <View className="absolute inset-0 bg-black/50 items-center justify-center z-20">
+                        <Ionicons name="refresh" size={32} color="#ffffff" class="animate-spin" />
+                      </View>
+                    ) : null}
+
+                    {/* STATE 2: Image Exists */}
+                    {user?.imageUrl ? (
+                      <Image
+                        source={{ uri: user.imageUrl }}
+                        className="w-full h-full"
+                        resizeMode="cover"
+                        // Optional: Add a fade-in effect if your library supports it
+                      />
                     ) : (
-                      <ThemedText variant="brand" size="2xl" className="font-bold">
-                        {profile.displayName[0]?.toUpperCase()}
-                      </ThemedText>
+                      /* STATE 3: Fallback Initials */
+                      <View className="w-full h-full items-center justify-center bg-brand/10">
+                        <ThemedText 
+                          variant="brand" 
+                          size="3xl" 
+                          className="font-bold text-brand"
+                        >
+                          {profile.displayName?.[0]?.toUpperCase() || 'U'}
+                        </ThemedText>
+                      </View>
+                    )}
+
+                    {/* Overlay Gradient (Optional: makes text/icon pop more) */}
+                    {!imageUploading && (
+                      <View className="absolute inset-0 rounded-full bg-black/0 active:bg-black/10 transition-colors" />
                     )}
                   </View>
-                  <View className="absolute bottom-2 right-2 w-6 h-6 rounded-full bg-brand items-center justify-center border-2 border-surface dark:border-dark-surface">
-                    <Ionicons name="camera" size={12} color="#ffffff" />
+
+                  {/* Camera Badge */}
+                  <View className="absolute bottom-1 right-1 w-9 h-9 rounded-full bg-brand items-center justify-center border-4 border-white dark:border-gray-900 shadow-md z-10">
+                    <Ionicons 
+                      name={imageUploading ? "hourglass" : "camera"} 
+                      size={16} 
+                      color="#ffffff" 
+                    />
                   </View>
                 </TouchableOpacity>
 
@@ -375,7 +447,7 @@ export default function ProfileScreen() {
                 {/* Action Buttons */}
                 <View className="flex-row gap-3 mt-4">
                   <Button
-                    variant="outline"
+                    variant="success"
                     size="sm"
                     // make  this router dynamic 
                     onPress={() => {currentShop ? router.push('/(auth)/manage-shop') : router.push('/(auth)/create-shop')}}

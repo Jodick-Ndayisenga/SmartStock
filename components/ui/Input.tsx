@@ -378,7 +378,9 @@ export const BarcodeInput = ({
 };
 
 // Phone Input for Burundi format
-interface PhoneInputProps extends Omit<InputProps, 'value' | 'onChangeText' | 'leftIcon'> {
+// Replace the existing PhoneInput component in components/ui/Input.tsx with this:
+
+interface PhoneInputProps extends Omit<InputProps, 'value' | 'onChangeText' | 'leftIcon' | 'keyboardType'> {
   value: string;
   onChange: (phone: string) => void;
   countryCode?: string;
@@ -394,7 +396,8 @@ export const PhoneInput = ({
     // Remove all non-digit characters
     const digits = text.replace(/\D/g, '');
     
-    // Format based on length
+    // Simple grouping for readability: XX XXX XX (or similar)
+    // Only add spaces, do not alter the actual data stored
     if (digits.length <= 2) {
       return digits;
     } else if (digits.length <= 5) {
@@ -402,28 +405,42 @@ export const PhoneInput = ({
     } else if (digits.length <= 8) {
       return `${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5)}`;
     } else {
-      return `${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5, 8)} ${digits.slice(8, 11)}`;
+      // Fallback for longer numbers
+      return `${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5, 8)} ${digits.slice(8)}`;
     }
   };
 
   const handleTextChange = (text: string) => {
-    const formatted = formatPhoneNumber(text);
-    onChange(formatted);
+    // 1. Strip any existing country code if the user pasted a full number
+    let cleanText = text.replace(countryCode, '').trim();
+    
+    // 2. Remove all non-digits to get raw numbers only
+    const digitsOnly = cleanText.replace(/\D/g, '');
+    
+    // 3. Pass ONLY the digits back to the parent. 
+    // Do NOT pass the formatted string with spaces to the state.
+    // We will only use formatting for the display value below.
+    onChange(digitsOnly);
   };
 
-  const displayValue = value.startsWith(countryCode) 
-    ? value 
-    : `${countryCode} ${formatPhoneNumber(value)}`;
+  // Format ONLY for display purposes. 
+  // The 'value' prop coming in is now just digits (e.g., "757"), 
+  // so we format it visually as "75 77" but don't store that space in state.
+  const formattedDisplay = formatPhoneNumber(value);
 
   return (
     <View className="relative">
       <Input
         {...props}
-        value={displayValue}
-        onChangeText={handleTextChange}
+        value={formattedDisplay} // Show formatted version (e.g., "75 77")
+        onChangeText={handleTextChange} // Save raw digits only (e.g., "7577")
         leftIcon="call-outline"
         keyboardType="phone-pad"
+        placeholder="Enter phone number"
       />
+      {/* Optional: Show country code as a visual label inside the input if desired, 
+          but since you have a separate selector in RegisterScreen, 
+          we rely on that for the actual code. */}
     </View>
   );
 };

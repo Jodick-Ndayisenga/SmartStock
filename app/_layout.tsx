@@ -4,76 +4,176 @@ import { NotificationProvider } from "@/context/NotificationContext";
 import i18nConfig from "@/language/i18nextConfig";
 import { ThemeProvider } from "@/providers/ThemeProvider";
 import { useFonts } from "expo-font";
-import { Stack, useRouter } from "expo-router";
-import React, { useEffect } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { Stack, useRouter, useSegments } from "expo-router";
+import React, { useEffect, useState } from "react";
+import { ActivityIndicator, View, Text } from "react-native";
 import "@/app/global.css";
 import { GluestackUIProvider } from "@/components/ui/gluestack-ui-provider";
-import "./global.css";
+import { ROUTES } from "@/constants/routes";
 
-// ✅ Move navigation logic to a separate component
 function AppContent() {
-  const { user, loading, isFirstTime, hasSeedsForCurrentShop, currentShop } = useAuth();
+  const { 
+    user, 
+    loading, 
+    isFirstTime, 
+    currentShop,
+    isAuthenticated,
+    sessionValidated,
+    validateSession 
+  } = useAuth();
+  
   const router = useRouter();
-  //console.log(currentShop)
+  const segments = useSegments();
+  
+  const [initialCheckDone, setInitialCheckDone] = useState(false);
+  const [navigationInProgress, setNavigationInProgress] = useState(false);
+  const [validationAttempted, setValidationAttempted] = useState(false);
 
-  // ✅ Seed products only once per shop
-  React.useEffect(() => {
-    const handleSeedProducts = async () => {
-      if (!hasSeedsForCurrentShop && user && currentShop) {
+  // Debug Log
+  useEffect(() => {
+    console.log("🔐 Auth State Update:", { 
+      user: !!user, 
+      isAuthenticated, 
+      hasShop: !!currentShop,
+      currentPath: segments.join('/')
+    });
+  }, [user, isAuthenticated, currentShop, segments]);
+
+  // PHASE 1: Validate session
+  useEffect(() => {
+    const checkSession = async () => {
+      if (!loading && !validationAttempted) {
+        console.log("🔄 Validating session...");
         try {
-          // Import dynamically to avoid circular dependencies
-          const { seedShopProducts } = await import("@/utils/dbSeeds");
-          await seedShopProducts(currentShop.id);
-          //await updateHasSeeds(currentShop.id, true);
-        } catch (error) {
-          console.error("Failed to seed products:", error);
+          await validateSession();
+        } catch (err) {
+          console.error("❌ Session validation failed:", err);
+        } finally {
+          setValidationAttempted(true);
+          setInitialCheckDone(true);
         }
       }
     };
+    checkSession();
+  }, [loading, validationAttempted]);
 
-    handleSeedProducts();
-  }, [hasSeedsForCurrentShop, user, currentShop]);
-
-   // Navigation logic
-  React.useEffect(() => {
-    if (loading) return;
-
-    // ✅ Force navigation based on auth state
-    if (isFirstTime && !user) {
-      router.replace("/(auth)/onboarding");
+  // PHASE 2: Navigation Guard
+  useEffect(() => {
+    if (loading || !initialCheckDone || navigationInProgress) {
       return;
     }
-    
-    if (!user) {
-      router.replace("/(auth)/login");
-      return;
-    }
-    
-    if (user && !currentShop) {
-      router.replace("/select-shop");
-      return;
-    }
-    
-    if (user && currentShop) {
-      router.replace("/(tabs)");
-      return;
-    }
-  }, [user, loading, isFirstTime, currentShop]);
 
-  // ✅ Show loading indicator during auth initialization
-  if (loading) {
+    const navigateToRoute = async () => {
+      setNavigationInProgress(true);
+      
+      try {
+        const currentRouteGroup = segments[0] || '';
+        const currentPath = segments.join('/');
+        
+        const isInAuthGroup = currentRouteGroup === '(auth)';
+        const isInTabsGroup = currentRouteGroup === '(tabs)';
+        
+        // 🛡️ ALLOW LIST: Specific routes users can access even if they look like "Auth" or root
+        const allowedProtectedPrefixes = [
+          '(tabs)',
+          'create-shop',
+          'products',
+          'sales',
+          'settings',
+          'notifications',
+          'expenses',
+          'reports',
+          'profile',
+          'stock',
+          'select-shop',
+          // ✅ Explicitly allow these auth-sub-routes for logged-in users
+          '(auth)/add-product',
+          '(auth)/edit-product',
+          '(auth)/templates-products'
+        ];
+
+        // Check if current path matches any allowed prefix
+        const isAllowedRoute = allowedProtectedPrefixes.some(prefix => 
+          currentPath === prefix || currentPath.startsWith(prefix + '/') || currentPath.startsWith(prefix)
+        );
+
+        console.log("📍 Nav Check:", { currentPath, isInAuthGroup, isAllowedRoute });
+
+        // --- CASE 1: First time user ---
+        if (isFirstTime && !user) {
+          if (!isInAuthGroup) {
+            router.replace(ROUTES.AUTH.ONBOARDING);
+          }
+          return;
+        }
+        
+        // --- CASE 2: Not authenticated ---
+        if (!isAuthenticated || !user) {
+          // If trying to access an allowed route but not auth, kick to login
+          if (!isInAuthGroup) {
+            router.replace(ROUTES.AUTH.LOGIN);
+          }
+          return;
+        }
+        
+        // --- CASE 3: Authenticated but NO shop ---
+        if (isAuthenticated && user && !currentShop) {
+          // Allow create-shop, but force redirect if they are elsewhere
+          if (currentPath !== 'create-shop' && !isAllowedRoute) {
+             router.replace(ROUTES.PROTECTED.CREATE_SHOP);
+          }
+          return;
+        }
+        
+        // --- CASE 4: Fully authenticated (User + Shop) ---
+        if (isAuthenticated && user && currentShop) {
+          
+          // ✅ CRITICAL FIX HERE:
+          // We only redirect to Tabs Home if:
+          // 1. They are in the generic Auth group (login/register) AND not on an allowed sub-route
+          // 2. OR they are at the root '/'
+          
+          const shouldRedirectToHome = 
+            (isInAuthGroup && !isAllowedRoute) || 
+            currentPath === '' || 
+            currentPath === '/';
+
+          if (shouldRedirectToHome) {
+            console.log("🟢 Redirecting to Tabs Home");
+            router.replace(ROUTES.PROTECTED.TABS);
+          } else {
+            console.log("✅ Staying on allowed route:", currentPath);
+          }
+          return;
+        }
+
+      } catch (error) {
+        console.error("🚨 Navigation error:", error);
+        router.replace(ROUTES.AUTH.LOGIN);
+      } finally {
+        setTimeout(() => setNavigationInProgress(false), 500);
+      }
+    };
+
+    navigateToRoute();
+  }, [user, loading, isFirstTime, currentShop, isAuthenticated, initialCheckDone, segments]);
+
+  // Loading UI
+  if (loading || !initialCheckDone) {
+    const loadingMessage = !validationAttempted ? "Securing session..." : "Loading dashboard...";
     return (
       <View className="flex-1 items-center justify-center bg-surface-soft dark:bg-dark-surface-soft">
         <ActivityIndicator size="large" color="#0ea5e9" />
+        <Text className="mt-4 text-gray-600 dark:text-gray-400 font-medium">{loadingMessage}</Text>
       </View>
     );
   }
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
       <Stack.Screen name="(auth)" />
       <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="create-shop" options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="+not-found" />
     </Stack>
   );
@@ -87,21 +187,17 @@ export default function RootLayout() {
     "Inter-Bold": require("../assets/fonts/Inter-Bold.ttf"),
   });
 
-  // Initialize i18n
-  useEffect(() => {
-    i18nConfig.initializeI18Next();
-  }, []);
+  useEffect(() => { i18nConfig.initializeI18Next(); }, []);
 
-  // Font loading
   if (!fontsLoaded && !fontError) {
     return (
       <View className="flex-1 items-center justify-center bg-white dark:bg-dark-surface">
         <ActivityIndicator size="large" color="#0ea5e9" />
+        <Text className="mt-4 text-gray-600 dark:text-gray-400">Loading resources...</Text>
       </View>
     );
   }
 
-  // ✅ Wrap providers correctly with NotificationProvider
   return (
     <GluestackUIProvider mode="dark">
       <ThemeProvider>
