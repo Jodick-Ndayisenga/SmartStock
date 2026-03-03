@@ -2,12 +2,12 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View,
-  ScrollView,
   TouchableOpacity,
   RefreshControl,
   Animated,
   Linking,
   SectionList,
+  ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -42,7 +42,7 @@ interface FilterState {
   search: string;
   sort: SortOption;
   filter: FilterOption;
-  viewMode: ViewMode;
+  viewMode: 'grid' | 'list';
   timeRange: TimeRange;
   minAmount?: number;
   maxAmount?: number;
@@ -59,13 +59,13 @@ export default function DebtorsScreen() {
   const { showNotification } = useNotification();
   const isDark = colorScheme === 'dark';
 
-  // Animation values
-  const scrollY = useRef(new Animated.Value(0)).current;
-  const headerOpacity = scrollY.interpolate({
-    inputRange: [0, 100],
-    outputRange: [1, 0.9],
-    extrapolate: 'clamp',
-  });
+  // Animation values - create the animated event handler directly
+const scrollY = useRef(new Animated.Value(0)).current;
+const headerOpacity = scrollY.interpolate({
+  inputRange: [0, 100],
+  outputRange: [1, 0.9],
+  extrapolate: 'clamp',
+});
 
   // State
   const [loading, setLoading] = useState(true);
@@ -105,7 +105,7 @@ export default function DebtorsScreen() {
     viewMode: 'list',
     timeRange: 'month',
   });
-  // ✅ Define getDaysOverdue FIRST before using it
+
   const getDaysOverdue = useCallback((debtor: DebtorSummary) => {
     if (!debtor.dueDate) return 0;
     const days = Math.floor((Date.now() - debtor.dueDate) / (24 * 60 * 60 * 1000));
@@ -122,7 +122,7 @@ export default function DebtorsScreen() {
     setSmsAvailable(isAvailable);
   };
 
-  // Statistics with animations - now getDaysOverdue is defined
+  // Statistics
   const stats = useMemo(() => {
     const totalOutstanding = debtors.reduce((sum, d) => sum + d.totalDebt, 0);
     const totalOverdue = debtors.reduce((sum, d) => sum + d.overdueAmount, 0);
@@ -130,12 +130,10 @@ export default function DebtorsScreen() {
     const overdueCount = debtors.filter(d => d.overdueAmount > 0).length;
     const paidThisMonth = debtors.reduce((sum, d) => sum + (d.paidThisMonth || 0), 0);
     
-    // Calculate recovery rate
     const totalEverOwed = debtors.reduce((sum, d) => sum + (d.totalEverOwed || d.totalDebt), 0);
     const totalPaid = totalEverOwed - totalOutstanding;
     const recoveryRate = totalEverOwed > 0 ? (totalPaid / totalEverOwed) * 100 : 0;
 
-    // Aging buckets - use getDaysOverdue here
     const aging = {
       current: debtors.filter(d => !d.overdueAmount).reduce((sum, d) => sum + d.totalDebt, 0),
       '1-30': debtors.filter(d => getDaysOverdue(d) > 0 && getDaysOverdue(d) <= 30).reduce((sum, d) => sum + d.overdueAmount, 0),
@@ -155,13 +153,12 @@ export default function DebtorsScreen() {
       averageDebt: activeDebtors > 0 ? totalOutstanding / activeDebtors : 0,
       collectionRate: activeDebtors > 0 ? ((activeDebtors - overdueCount) / activeDebtors) * 100 : 100,
     };
-  }, [debtors, getDaysOverdue]); // ✅ Add getDaysOverdue to dependencies
+  }, [debtors, getDaysOverdue]);
 
   // Filtered and sorted debtors
   const filteredDebtors = useMemo(() => {
     let filtered = [...debtors];
 
-    // Apply search
     if (filters.search.trim()) {
       const searchLower = filters.search.toLowerCase();
       filtered = filtered.filter(d =>
@@ -171,7 +168,6 @@ export default function DebtorsScreen() {
       );
     }
 
-    // Apply amount range
     if (filters.minAmount !== undefined) {
       filtered = filtered.filter(d => d.totalDebt >= filters.minAmount!);
     }
@@ -179,7 +175,6 @@ export default function DebtorsScreen() {
       filtered = filtered.filter(d => d.totalDebt <= filters.maxAmount!);
     }
 
-    // Apply date range
     if (filters.dateRange) {
       filtered = filtered.filter(d => 
         d.oldestDebtDate >= filters.dateRange!.start &&
@@ -187,7 +182,6 @@ export default function DebtorsScreen() {
       );
     }
 
-    // Apply smart filters
     switch (filters.filter) {
       case 'overdue':
         filtered = filtered.filter(d => d.overdueAmount > 0);
@@ -212,7 +206,6 @@ export default function DebtorsScreen() {
         break;
     }
 
-    // Apply sorting
     filtered.sort((a, b) => {
       switch (filters.sort) {
         case 'name':
@@ -352,10 +345,8 @@ export default function DebtorsScreen() {
           icon: 'checkmark-circle',
         });
 
-        // Refresh data
         await loadDebtors();
         
-        // Reset form
         setPaymentAmount('');
         setPaymentNotes('');
         setShowPaymentDialog(false);
@@ -379,7 +370,6 @@ export default function DebtorsScreen() {
   // Handle message
   const handleMessage = useCallback(async (debtor: DebtorSummary) => {
     if (!smsAvailable) {
-      // Copy phone to clipboard if SMS not available
       await Clipboard.setStringAsync(debtor.contactPhone);
       setDialogData({
         visible: true,
@@ -417,7 +407,6 @@ export default function DebtorsScreen() {
           icon: result === 'sent' ? 'checkmark-circle' : 'close-circle',
         });
 
-        // Track in payment history (optional)
         if (result === 'sent') {
           await DebtService.trackReminder(selectedDebtor.contactId);
         }
@@ -440,15 +429,10 @@ export default function DebtorsScreen() {
   // Handle call
   const handleCall = useCallback(async (debtor: DebtorSummary) => {
     try {
-      // Try to open phone app
       await Linking.openURL(`tel:${debtor.contactPhone}`);
-      
-      // Track call (optional)
       await DebtService.trackCall(debtor.contactId);
-      
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (error) {
-      // If phone app not available, copy to clipboard
       await Clipboard.setStringAsync(debtor.contactPhone);
       setDialogData({
         visible: true,
@@ -476,7 +460,6 @@ export default function DebtorsScreen() {
   // Handle export
   const handleExport = useCallback(async (format: 'pdf' | 'excel' | 'csv') => {
     try {
-      // TODO: Implement export service
       setDialogData({
         visible: true,
         title: '📊 Export Started',
@@ -485,7 +468,6 @@ export default function DebtorsScreen() {
         icon: 'document-text',
       });
       
-      // Simulate export completion
       setTimeout(() => {
         setDialogData({
           visible: true,
@@ -505,6 +487,8 @@ export default function DebtorsScreen() {
       });
     }
   }, []);
+
+
 
   // Format utilities
   const formatCurrency = (amount: number) => {
@@ -528,7 +512,7 @@ export default function DebtorsScreen() {
     return 'low';
   }, [getDaysOverdue, stats.averageDebt]);
 
-  if (loading){
+  if (loading) {
     return (
       <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
         <PremiumHeader title="Debtors" showBackButton />
@@ -537,6 +521,362 @@ export default function DebtorsScreen() {
     );
   }
 
+
+  // In your debtors.tsx, replace the scroll handlers with this:
+
+
+
+// Create the animated event handler correctly for ScrollView (grid view)
+const onGridScroll = Animated.event(
+  [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+  { useNativeDriver: true }
+);
+
+// For SectionList (list view) - with non-native driver
+const onListScroll = Animated.event(
+  [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+  { useNativeDriver: false }
+);
+
+
+
+
+  // For grid view, use ScrollView instead of SectionList
+  if (filters.viewMode === 'grid') {
+    return (
+      <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
+      <Animated.View style={{ opacity: headerOpacity }}>
+        <PremiumHeader
+          title="Debtors"
+          showBackButton
+          searchable
+          searchPlaceholder="Search by name, phone or email..."
+          onSearch={(text) => setFilters(prev => ({ ...prev, search: text }))}
+        />
+      </Animated.View>
+
+      <ScrollView
+        className="flex-1"
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={onRefresh}
+            tintColor={isDark ? '#fff' : '#0ea5e9'}
+          />
+        }
+        onScroll={onGridScroll}
+        scrollEventThrottle={16}
+      >
+          <View className="p-4">
+            {/* Summary Cards */}
+            <View className="flex-row flex-wrap gap-3 mb-6">
+              {/* ... Summary Cards JSX (same as before) ... */}
+              <Card variant="elevated" className="flex-1 min-w-[48%]">
+                <CardContent className="p-4">
+                  <View className="flex-row items-center justify-between mb-2">
+                    <View className="w-10 h-10 rounded-full bg-error/10 items-center justify-center">
+                      <Ionicons name="people" size={20} color="#ef4444" />
+                    </View>
+                    <View className="px-2 py-1 bg-surface-soft dark:bg-dark-surface-soft rounded-full">
+                      <ThemedText variant="muted" size="xs">
+                        {((stats.activeDebtors / (debtors.length || 1)) * 100).toFixed(0)}%
+                      </ThemedText>
+                    </View>
+                  </View>
+                  <ThemedText variant="muted" size="sm">
+                    Active Debtors
+                  </ThemedText>
+                  <ThemedText variant="heading" size="xl" className="font-bold">
+                    {stats.activeDebtors}
+                  </ThemedText>
+                  <View className="flex-row items-center mt-2">
+                    <Ionicons 
+                      name={stats.overdueCount > 0 ? 'alert-circle' : 'checkmark-circle'} 
+                      size={14} 
+                      color={stats.overdueCount > 0 ? '#ef4444' : '#22c55e'} 
+                    />
+                    <ThemedText 
+                      variant={stats.overdueCount > 0 ? 'error' : 'success'} 
+                      size="xs"
+                      className="ml-1"
+                    >
+                      {stats.overdueCount} overdue
+                    </ThemedText>
+                  </View>
+                </CardContent>
+              </Card>
+
+              <Card variant="elevated" className="flex-1 min-w-[48%]">
+                <CardContent className="p-4">
+                  <View className="flex-row items-center justify-between mb-2">
+                    <View className="w-10 h-10 rounded-full bg-warning/10 items-center justify-center">
+                      <Ionicons name="cash" size={20} color="#f59e0b" />
+                    </View>
+                  </View>
+                  <ThemedText variant="muted" size="sm">
+                    Outstanding
+                  </ThemedText>
+                  <ThemedText variant="heading" size="xl" className="font-bold text-warning">
+                    {formatCurrency(stats.totalOutstanding)}
+                  </ThemedText>
+                  <View className="flex-row items-center mt-2">
+                    <View className="flex-1 h-1.5 bg-surface-soft dark:bg-dark-surface-soft rounded-full overflow-hidden">
+                      <View 
+                        className="h-full bg-warning rounded-full"
+                        style={{ width: `${(stats.totalOverdue / (stats.totalOutstanding || 1)) * 100}%` }}
+                      />
+                    </View>
+                    <ThemedText variant="error" size="xs" className="ml-2">
+                      {formatCurrency(stats.totalOverdue)}
+                    </ThemedText>
+                  </View>
+                </CardContent>
+              </Card>
+
+              <Card variant="elevated" className="flex-1 min-w-[48%]">
+                <CardContent className="p-4">
+                  <View className="flex-row items-center justify-between mb-2">
+                    <View className="w-10 h-10 rounded-full bg-success/10 items-center justify-center">
+                      <Ionicons name="trending-up" size={20} color="#22c55e" />
+                    </View>
+                  </View>
+                  <ThemedText variant="muted" size="sm">
+                    Recovery Rate
+                  </ThemedText>
+                  <ThemedText variant="heading" size="xl" className="font-bold text-success">
+                    {stats.recoveryRate.toFixed(1)}%
+                  </ThemedText>
+                  <ThemedText variant="muted" size="xs" className="mt-2">
+                    {formatCurrency(stats.paidThisMonth)} paid this month
+                  </ThemedText>
+                </CardContent>
+              </Card>
+
+              <Card variant="elevated" className="flex-1 min-w-[48%]">
+                <CardContent className="p-4">
+                  <View className="flex-row items-center justify-between mb-2">
+                    <View className="w-10 h-10 rounded-full bg-info/10 items-center justify-center">
+                      <Ionicons name="calendar" size={20} color="#3b82f6" />
+                    </View>
+                  </View>
+                  <ThemedText variant="muted" size="sm">
+                    Collection Rate
+                  </ThemedText>
+                  <ThemedText variant="heading" size="xl" className="font-bold text-info">
+                    {stats.collectionRate.toFixed(1)}%
+                  </ThemedText>
+                  <ThemedText variant="muted" size="xs" className="mt-2">
+                    {stats.activeDebtors - stats.overdueCount} current debtors
+                  </ThemedText>
+                </CardContent>
+              </Card>
+            </View>
+
+            {/* Aging Chart Card */}
+            <Card variant="elevated" className="mb-6">
+              <CardContent className="p-4">
+                <View className="flex-row items-center justify-between mb-4">
+                  <ThemedText variant="heading" size="base" className="font-semibold">
+                    Aging Summary
+                  </ThemedText>
+                  <TouchableOpacity
+                    onPress={() => setFilters(prev => ({ 
+                      ...prev, 
+                      timeRange: prev.timeRange === 'month' ? 'quarter' : 'month' 
+                    }))}
+                  >
+                    <ThemedText variant="brand" size="sm">
+                      {filters.timeRange === 'month' ? 'Monthly' : 'Quarterly'} View
+                    </ThemedText>
+                  </TouchableOpacity>
+                </View>
+                
+                <View className="gap-2">
+                  {Object.entries(stats.aging).map(([period, amount]) => {
+                    const percentage = (amount / (stats.totalOutstanding || 1)) * 100;
+                    return (
+                      <View key={period}>
+                        <View className="flex-row justify-between mb-1">
+                          <ThemedText variant="muted" size="sm" className="capitalize">
+                            {period}
+                          </ThemedText>
+                          <ThemedText variant="default" size="sm" className="font-medium">
+                            {formatCurrency(amount)}
+                          </ThemedText>
+                        </View>
+                        <View className="h-2 bg-surface-soft dark:bg-dark-surface-soft rounded-full overflow-hidden">
+                          <View 
+                            className={`h-full rounded-full ${
+                              period === 'current' ? 'bg-success' :
+                              period === '1-30' ? 'bg-warning' :
+                              period === '31-60' ? 'bg-orange-500' :
+                              period === '61-90' ? 'bg-error' :
+                              'bg-error/70'
+                            }`}
+                            style={{ width: `${percentage}%` }}
+                          />
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              </CardContent>
+            </Card>
+
+            {/* Filter Chips */}
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              className="mb-4 -ml-4 pl-4"
+            >
+              <View className="flex-row gap-2">
+                <FilterChip
+                  label={`All (${debtors.length})`}
+                  selected={filters.filter === 'all'}
+                  onPress={() => setFilters(prev => ({ ...prev, filter: 'all' }))}
+                />
+                <FilterChip
+                  label={`Overdue (${stats.overdueCount})`}
+                  selected={filters.filter === 'overdue'}
+                  onPress={() => setFilters(prev => ({ ...prev, filter: 'overdue' }))}
+                  color="error"
+                />
+                <FilterChip
+                  label="High Value"
+                  selected={filters.filter === 'high-value'}
+                  onPress={() => setFilters(prev => ({ ...prev, filter: 'high-value' }))}
+                  color="warning"
+                />
+                <FilterChip
+                  label="Recent"
+                  selected={filters.filter === 'recent'}
+                  onPress={() => setFilters(prev => ({ ...prev, filter: 'recent' }))}
+                  color="info"
+                />
+                <FilterChip
+                  label="This Week"
+                  selected={filters.filter === 'this-week'}
+                  onPress={() => setFilters(prev => ({ ...prev, filter: 'this-week' }))}
+                />
+                <FilterChip
+                  label="This Month"
+                  selected={filters.filter === 'this-month'}
+                  onPress={() => setFilters(prev => ({ ...prev, filter: 'this-month' }))}
+                />
+              </View>
+            </ScrollView>
+
+            {/* View Toggle and Sort */}
+            <View className="flex-row items-center justify-between mb-4">
+            <View className="flex-row bg-surface dark:bg-dark-surface rounded-lg p-1">
+              <TouchableOpacity
+                onPress={() => setFilters(prev => ({ ...prev, viewMode: 'list' }))}
+                className={`px-3 py-2 rounded-l-lg ${
+                  (filters.viewMode as string) === 'list' ? 'bg-brand/20' : ''
+                }`}
+              >
+                <Ionicons 
+                  name="list" 
+                  size={18} 
+                  color={(filters.viewMode as string) === 'list' ? '#0ea5e9' : isDark ? '#94a3b8' : '#64748b'} 
+                />
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                onPress={() => setFilters(prev => ({ ...prev, viewMode: 'grid' }))}
+                className={`px-3 py-2 rounded-r-lg ${
+                  (filters.viewMode as string) === 'grid' ? 'bg-brand/20' : ''
+                }`}
+              >
+                <Ionicons 
+                  name="grid" 
+                  size={18} 
+                  color={(filters.viewMode as string) === 'grid' ? '#0ea5e9' : isDark ? '#94a3b8' : '#64748b'} 
+                />
+              </TouchableOpacity>
+            </View>
+
+              <View className="flex-row items-center">
+                <TouchableOpacity
+                  onPress={() => {
+                    const options: SortOption[] = ['amount-desc', 'name', 'overdue', 'oldest'];
+                    const currentIndex = options.indexOf(filters.sort);
+                    const nextSort = options[(currentIndex + 1) % options.length];
+                    setFilters(prev => ({ ...prev, sort: nextSort }));
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                  className="flex-row items-center bg-surface dark:bg-dark-surface px-3 py-2 rounded-lg"
+                >
+                  <Ionicons 
+                    name="swap-vertical" 
+                    size={16} 
+                    color={isDark ? '#94a3b8' : '#64748b'} 
+                  />
+                  <ThemedText variant="muted" size="sm" className="ml-1 capitalize">
+                    {filters.sort.replace('-', ' ')}
+                  </ThemedText>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Grid View */}
+            {filteredDebtors.length === 0 ? (
+              <EmptyState
+                icon={filters.search ? 'search-outline' : 'people-outline'}
+                title={filters.search ? 'No Results Found' : 'No Debtors Yet'}
+                description={
+                  filters.search
+                    ? `No debtors matching "${filters.search}"`
+                    : "No one owes you money yet. Credit sales will appear here."
+                }
+                action={
+                  filters.search
+                    ? [{
+                        label: 'Clear Search',
+                        variant: 'outline',
+                        onPress: () => setFilters(prev => ({ ...prev, search: '' })),
+                        icon: 'refresh',
+                      }]
+                    : [{
+                        label: 'New Credit Sale',
+                        variant: 'default',
+                        onPress: () => router.push('/(tabs)/sales'),
+                        icon: 'add-circle',
+                      }]
+                }
+              />
+            ) : (
+              <View className="flex-row flex-wrap gap-3">
+                {filteredDebtors.map((debtor) => (
+                  <View key={debtor.contactId} className="w-[48%]">
+                    <DebtorCard
+                      debtor={debtor}
+                      onPress={() => {
+                        setSelectedDebtor(debtor);
+                        setShowDetailsDialog(true);
+                      }}
+                      onPayment={() => {
+                        setSelectedDebtor(debtor);
+                        setShowPaymentDialog(true);
+                      }}
+                      onMessage={() => handleMessage(debtor)}
+                      onCall={() => handleCall(debtor)}
+                      onCopyPhone={() => handleCopyPhone(debtor.contactPhone, debtor.contactName)}
+                      viewMode="grid"
+                      riskLevel={getRiskLevel(debtor)}
+                    />
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // For list view, use SectionList without native animated event
   return (
     <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
       <Animated.View style={{ opacity: headerOpacity }}>
@@ -546,19 +886,13 @@ export default function DebtorsScreen() {
           searchable
           searchPlaceholder="Search by name, phone or email..."
           onSearch={(text) => setFilters(prev => ({ ...prev, search: text }))}
-          
         />
       </Animated.View>
 
-      {/* Stats Summary */}
-      <ScrollView
-        className="flex-1"
-        showsVerticalScrollIndicator={false}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: true }
-        )}
-        scrollEventThrottle={16}
+      <SectionList
+        sections={sections}
+        keyExtractor={(item) => item.contactId}
+        stickySectionHeadersEnabled
         refreshControl={
           <RefreshControl 
             refreshing={refreshing} 
@@ -566,260 +900,292 @@ export default function DebtorsScreen() {
             tintColor={isDark ? '#fff' : '#0ea5e9'}
           />
         }
-      >
-        <View className="p-4">
-          {/* Summary Cards */}
-          <View className="flex-row flex-wrap gap-3 mb-6">
-            <Card variant="elevated" className="flex-1 min-w-[48%]">
-              <CardContent className="p-4">
-                <View className="flex-row items-center justify-between mb-2">
-                  <View className="w-10 h-10 rounded-full bg-error/10 items-center justify-center">
-                    <Ionicons name="people" size={20} color="#ef4444" />
+        // Use non-native driver for SectionList
+        onScroll={onListScroll}
+        scrollEventThrottle={16}
+        ListHeaderComponent={
+          <View className="p-4">
+            {/* Summary Cards */}
+            <View className="flex-row flex-wrap gap-3 mb-6">
+              {/* ... Summary Cards JSX (same as above) ... */}
+              <Card variant="elevated" className="flex-1 min-w-[48%]">
+                <CardContent className="p-4">
+                  <View className="flex-row items-center justify-between mb-2">
+                    <View className="w-10 h-10 rounded-full bg-error/10 items-center justify-center">
+                      <Ionicons name="people" size={20} color="#ef4444" />
+                    </View>
+                    <View className="px-2 py-1 bg-surface-soft dark:bg-dark-surface-soft rounded-full">
+                      <ThemedText variant="muted" size="xs">
+                        {((stats.activeDebtors / (debtors.length || 1)) * 100).toFixed(0)}%
+                      </ThemedText>
+                    </View>
                   </View>
-                  <View className="px-2 py-1 bg-surface-soft dark:bg-dark-surface-soft rounded-full">
-                    <ThemedText variant="muted" size="xs">
-                      {((stats.activeDebtors / (debtors.length || 1)) * 100).toFixed(0)}%
+                  <ThemedText variant="muted" size="sm">
+                    Active Debtors
+                  </ThemedText>
+                  <ThemedText variant="heading" size="xl" className="font-bold">
+                    {stats.activeDebtors}
+                  </ThemedText>
+                  <View className="flex-row items-center mt-2">
+                    <Ionicons 
+                      name={stats.overdueCount > 0 ? 'alert-circle' : 'checkmark-circle'} 
+                      size={14} 
+                      color={stats.overdueCount > 0 ? '#ef4444' : '#22c55e'} 
+                    />
+                    <ThemedText 
+                      variant={stats.overdueCount > 0 ? 'error' : 'success'} 
+                      size="xs"
+                      className="ml-1"
+                    >
+                      {stats.overdueCount} overdue
                     </ThemedText>
                   </View>
-                </View>
-                <ThemedText variant="muted" size="sm">
-                  Active Debtors
-                </ThemedText>
-                <ThemedText variant="heading" size="xl" className="font-bold">
-                  {stats.activeDebtors}
-                </ThemedText>
-                <View className="flex-row items-center mt-2">
-                  <Ionicons 
-                    name={stats.overdueCount > 0 ? 'alert-circle' : 'checkmark-circle'} 
-                    size={14} 
-                    color={stats.overdueCount > 0 ? '#ef4444' : '#22c55e'} 
-                  />
-                  <ThemedText 
-                    variant={stats.overdueCount > 0 ? 'error' : 'success'} 
-                    size="xs"
-                    className="ml-1"
-                  >
-                    {stats.overdueCount} overdue
-                  </ThemedText>
-                </View>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
 
-            <Card variant="elevated" className="flex-1 min-w-[48%]">
-              <CardContent className="p-4">
-                <View className="flex-row items-center justify-between mb-2">
-                  <View className="w-10 h-10 rounded-full bg-warning/10 items-center justify-center">
-                    <Ionicons name="cash" size={20} color="#f59e0b" />
-                  </View>
-                </View>
-                <ThemedText variant="muted" size="sm">
-                  Outstanding
-                </ThemedText>
-                <ThemedText variant="heading" size="xl" className="font-bold text-warning">
-                  {formatCurrency(stats.totalOutstanding)}
-                </ThemedText>
-                <View className="flex-row items-center mt-2">
-                  <View className="flex-1 h-1.5 bg-surface-soft dark:bg-dark-surface-soft rounded-full overflow-hidden">
-                    <View 
-                      className="h-full bg-warning rounded-full"
-                      style={{ width: `${(stats.totalOverdue / (stats.totalOutstanding || 1)) * 100}%` }}
-                    />
-                  </View>
-                  <ThemedText variant="error" size="xs" className="ml-2">
-                    {formatCurrency(stats.totalOverdue)}
-                  </ThemedText>
-                </View>
-              </CardContent>
-            </Card>
-
-            <Card variant="elevated" className="flex-1 min-w-[48%]">
-              <CardContent className="p-4">
-                <View className="flex-row items-center justify-between mb-2">
-                  <View className="w-10 h-10 rounded-full bg-success/10 items-center justify-center">
-                    <Ionicons name="trending-up" size={20} color="#22c55e" />
-                  </View>
-                </View>
-                <ThemedText variant="muted" size="sm">
-                  Recovery Rate
-                </ThemedText>
-                <ThemedText variant="heading" size="xl" className="font-bold text-success">
-                  {stats.recoveryRate.toFixed(1)}%
-                </ThemedText>
-                <ThemedText variant="muted" size="xs" className="mt-2">
-                  {formatCurrency(stats.paidThisMonth)} paid this month
-                </ThemedText>
-              </CardContent>
-            </Card>
-
-            <Card variant="elevated" className="flex-1 min-w-[48%]">
-              <CardContent className="p-4">
-                <View className="flex-row items-center justify-between mb-2">
-                  <View className="w-10 h-10 rounded-full bg-info/10 items-center justify-center">
-                    <Ionicons name="calendar" size={20} color="#3b82f6" />
-                  </View>
-                </View>
-                <ThemedText variant="muted" size="sm">
-                  Collection Rate
-                </ThemedText>
-                <ThemedText variant="heading" size="xl" className="font-bold text-info">
-                  {stats.collectionRate.toFixed(1)}%
-                </ThemedText>
-                <ThemedText variant="muted" size="xs" className="mt-2">
-                  {stats.activeDebtors - stats.overdueCount} current debtors
-                </ThemedText>
-              </CardContent>
-            </Card>
-          </View>
-
-          {/* Aging Chart Card */}
-          <Card variant="elevated" className="mb-6">
-            <CardContent className="p-4">
-              <View className="flex-row items-center justify-between mb-4">
-                <ThemedText variant="heading" size="base" className="font-semibold">
-                  Aging Summary
-                </ThemedText>
-                <TouchableOpacity
-                  onPress={() => setFilters(prev => ({ 
-                    ...prev, 
-                    timeRange: prev.timeRange === 'month' ? 'quarter' : 'month' 
-                  }))}
-                >
-                  <ThemedText variant="brand" size="sm">
-                    {filters.timeRange === 'month' ? 'Monthly' : 'Quarterly'} View
-                  </ThemedText>
-                </TouchableOpacity>
-              </View>
-              
-              {/* Aging Bars */}
-              <View className="gap-2">
-                {Object.entries(stats.aging).map(([period, amount]) => {
-                  const percentage = (amount / (stats.totalOutstanding || 1)) * 100;
-                  return (
-                    <View key={period}>
-                      <View className="flex-row justify-between mb-1">
-                        <ThemedText variant="muted" size="sm" className="capitalize">
-                          {period}
-                        </ThemedText>
-                        <ThemedText variant="default" size="sm" className="font-medium">
-                          {formatCurrency(amount)}
-                        </ThemedText>
-                      </View>
-                      <View className="h-2 bg-surface-soft dark:bg-dark-surface-soft rounded-full overflow-hidden">
-                        <View 
-                          className={`h-full rounded-full ${
-                            period === 'current' ? 'bg-success' :
-                            period === '1-30' ? 'bg-warning' :
-                            period === '31-60' ? 'bg-orange-500' :
-                            period === '61-90' ? 'bg-error' :
-                            'bg-error/70'
-                          }`}
-                          style={{ width: `${percentage}%` }}
-                        />
-                      </View>
+              <Card variant="elevated" className="flex-1 min-w-[48%]">
+                <CardContent className="p-4">
+                  <View className="flex-row items-center justify-between mb-2">
+                    <View className="w-10 h-10 rounded-full bg-warning/10 items-center justify-center">
+                      <Ionicons name="cash" size={20} color="#f59e0b" />
                     </View>
-                  );
-                })}
-              </View>
-            </CardContent>
-          </Card>
+                  </View>
+                  <ThemedText variant="muted" size="sm">
+                    Outstanding
+                  </ThemedText>
+                  <ThemedText variant="heading" size="xl" className="font-bold text-warning">
+                    {formatCurrency(stats.totalOutstanding)}
+                  </ThemedText>
+                  <View className="flex-row items-center mt-2">
+                    <View className="flex-1 h-1.5 bg-surface-soft dark:bg-dark-surface-soft rounded-full overflow-hidden">
+                      <View 
+                        className="h-full bg-warning rounded-full"
+                        style={{ width: `${(stats.totalOverdue / (stats.totalOutstanding || 1)) * 100}%` }}
+                      />
+                    </View>
+                    <ThemedText variant="error" size="xs" className="ml-2">
+                      {formatCurrency(stats.totalOverdue)}
+                    </ThemedText>
+                  </View>
+                </CardContent>
+              </Card>
 
-          {/* Filter Chips */}
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            className="mb-4 -ml-4 pl-4"
-          >
-            <View className="flex-row gap-2">
-              <FilterChip
-                label={`All (${debtors.length})`}
-                selected={filters.filter === 'all'}
-                onPress={() => setFilters(prev => ({ ...prev, filter: 'all' }))}
-              />
-              <FilterChip
-                label={`Overdue (${stats.overdueCount})`}
-                selected={filters.filter === 'overdue'}
-                onPress={() => setFilters(prev => ({ ...prev, filter: 'overdue' }))}
-                color="error"
-              />
-              <FilterChip
-                label="High Value"
-                selected={filters.filter === 'high-value'}
-                onPress={() => setFilters(prev => ({ ...prev, filter: 'high-value' }))}
-                color="warning"
-              />
-              <FilterChip
-                label="Recent"
-                selected={filters.filter === 'recent'}
-                onPress={() => setFilters(prev => ({ ...prev, filter: 'recent' }))}
-                color="info"
-              />
-              <FilterChip
-                label="This Week"
-                selected={filters.filter === 'this-week'}
-                onPress={() => setFilters(prev => ({ ...prev, filter: 'this-week' }))}
-              />
-              <FilterChip
-                label="This Month"
-                selected={filters.filter === 'this-month'}
-                onPress={() => setFilters(prev => ({ ...prev, filter: 'this-month' }))}
-              />
+              <Card variant="elevated" className="flex-1 min-w-[48%]">
+                <CardContent className="p-4">
+                  <View className="flex-row items-center justify-between mb-2">
+                    <View className="w-10 h-10 rounded-full bg-success/10 items-center justify-center">
+                      <Ionicons name="trending-up" size={20} color="#22c55e" />
+                    </View>
+                  </View>
+                  <ThemedText variant="muted" size="sm">
+                    Recovery Rate
+                  </ThemedText>
+                  <ThemedText variant="heading" size="xl" className="font-bold text-success">
+                    {stats.recoveryRate.toFixed(1)}%
+                  </ThemedText>
+                  <ThemedText variant="muted" size="xs" className="mt-2">
+                    {formatCurrency(stats.paidThisMonth)} paid this month
+                  </ThemedText>
+                </CardContent>
+              </Card>
+
+              <Card variant="elevated" className="flex-1 min-w-[48%]">
+                <CardContent className="p-4">
+                  <View className="flex-row items-center justify-between mb-2">
+                    <View className="w-10 h-10 rounded-full bg-info/10 items-center justify-center">
+                      <Ionicons name="calendar" size={20} color="#3b82f6" />
+                    </View>
+                  </View>
+                  <ThemedText variant="muted" size="sm">
+                    Collection Rate
+                  </ThemedText>
+                  <ThemedText variant="heading" size="xl" className="font-bold text-info">
+                    {stats.collectionRate.toFixed(1)}%
+                  </ThemedText>
+                  <ThemedText variant="muted" size="xs" className="mt-2">
+                    {stats.activeDebtors - stats.overdueCount} current debtors
+                  </ThemedText>
+                </CardContent>
+              </Card>
             </View>
-          </ScrollView>
 
-          {/* View Toggle and Sort */}
-          <View className="flex-row items-center justify-between mb-4">
-            <View className="flex-row bg-surface dark:bg-dark-surface rounded-lg p-1">
+            {/* Aging Chart Card */}
+            <Card variant="elevated" className="mb-6">
+              <CardContent className="p-4">
+                <View className="flex-row items-center justify-between mb-4">
+                  <ThemedText variant="heading" size="base" className="font-semibold">
+                    Aging Summary
+                  </ThemedText>
+                  <TouchableOpacity
+                    onPress={() => setFilters(prev => ({ 
+                      ...prev, 
+                      timeRange: prev.timeRange === 'month' ? 'quarter' : 'month' 
+                    }))}
+                  >
+                    <ThemedText variant="brand" size="sm">
+                      {filters.timeRange === 'month' ? 'Monthly' : 'Quarterly'} View
+                    </ThemedText>
+                  </TouchableOpacity>
+                </View>
+                
+                <View className="gap-2">
+                  {Object.entries(stats.aging).map(([period, amount]) => {
+                    const percentage = (amount / (stats.totalOutstanding || 1)) * 100;
+                    return (
+                      <View key={period}>
+                        <View className="flex-row justify-between mb-1">
+                          <ThemedText variant="muted" size="sm" className="capitalize">
+                            {period}
+                          </ThemedText>
+                          <ThemedText variant="default" size="sm" className="font-medium">
+                            {formatCurrency(amount)}
+                          </ThemedText>
+                        </View>
+                        <View className="h-2 bg-surface-soft dark:bg-dark-surface-soft rounded-full overflow-hidden">
+                          <View 
+                            className={`h-full rounded-full ${
+                              period === 'current' ? 'bg-success' :
+                              period === '1-30' ? 'bg-warning' :
+                              period === '31-60' ? 'bg-orange-500' :
+                              period === '61-90' ? 'bg-error' :
+                              'bg-error/70'
+                            }`}
+                            style={{ width: `${percentage}%` }}
+                          />
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              </CardContent>
+            </Card>
+
+            {/* Filter Chips */}
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              className="mb-4 -ml-4 pl-4"
+            >
+              <View className="flex-row gap-2">
+                <FilterChip
+                  label={`All (${debtors.length})`}
+                  selected={filters.filter === 'all'}
+                  onPress={() => setFilters(prev => ({ ...prev, filter: 'all' }))}
+                />
+                <FilterChip
+                  label={`Overdue (${stats.overdueCount})`}
+                  selected={filters.filter === 'overdue'}
+                  onPress={() => setFilters(prev => ({ ...prev, filter: 'overdue' }))}
+                  color="error"
+                />
+                <FilterChip
+                  label="High Value"
+                  selected={filters.filter === 'high-value'}
+                  onPress={() => setFilters(prev => ({ ...prev, filter: 'high-value' }))}
+                  color="warning"
+                />
+                <FilterChip
+                  label="Recent"
+                  selected={filters.filter === 'recent'}
+                  onPress={() => setFilters(prev => ({ ...prev, filter: 'recent' }))}
+                  color="info"
+                />
+                <FilterChip
+                  label="This Week"
+                  selected={filters.filter === 'this-week'}
+                  onPress={() => setFilters(prev => ({ ...prev, filter: 'this-week' }))}
+                />
+                <FilterChip
+                  label="This Month"
+                  selected={filters.filter === 'this-month'}
+                  onPress={() => setFilters(prev => ({ ...prev, filter: 'this-month' }))}
+                />
+              </View>
+            </ScrollView>
+
+            {/* View Toggle and Sort */}
+            <View className="flex-row items-center justify-between mb-4">
+             <View className="flex-row bg-surface dark:bg-dark-surface rounded-lg p-1">
               <TouchableOpacity
                 onPress={() => setFilters(prev => ({ ...prev, viewMode: 'list' }))}
                 className={`px-3 py-2 rounded-l-lg ${
-                  filters.viewMode === 'list' ? 'bg-brand/20' : ''
+                  (filters.viewMode as string) === 'list' ? 'bg-brand/20' : ''
                 }`}
               >
                 <Ionicons 
                   name="list" 
                   size={18} 
-                  color={filters.viewMode === 'list' ? '#0ea5e9' : isDark ? '#94a3b8' : '#64748b'} 
+                  color={(filters.viewMode as string) === 'list' ? '#0ea5e9' : isDark ? '#94a3b8' : '#64748b'} 
                 />
               </TouchableOpacity>
+              
               <TouchableOpacity
                 onPress={() => setFilters(prev => ({ ...prev, viewMode: 'grid' }))}
                 className={`px-3 py-2 rounded-r-lg ${
-                  filters.viewMode === 'grid' ? 'bg-brand/20' : ''
+                  (filters.viewMode as string) === 'grid' ? 'bg-brand/20' : ''
                 }`}
               >
                 <Ionicons 
                   name="grid" 
                   size={18} 
-                  color={filters.viewMode === 'grid' ? '#0ea5e9' : isDark ? '#94a3b8' : '#64748b'} 
+                  color={(filters.viewMode as string) === 'grid' ? '#0ea5e9' : isDark ? '#94a3b8' : '#64748b'} 
                 />
               </TouchableOpacity>
             </View>
 
-            <View className="flex-row items-center">
-              <TouchableOpacity
-                onPress={() => {
-                  const options: SortOption[] = ['amount-desc', 'name', 'overdue', 'oldest'];
-                  const currentIndex = options.indexOf(filters.sort);
-                  const nextSort = options[(currentIndex + 1) % options.length];
-                  setFilters(prev => ({ ...prev, sort: nextSort }));
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-                className="flex-row items-center bg-surface dark:bg-dark-surface px-3 py-2 rounded-lg"
-              >
-                <Ionicons 
-                  name="swap-vertical" 
-                  size={16} 
-                  color={isDark ? '#94a3b8' : '#64748b'} 
-                />
-                <ThemedText variant="muted" size="sm" className="ml-1 capitalize">
-                  {filters.sort.replace('-', ' ')}
-                </ThemedText>
-              </TouchableOpacity>
+              <View className="flex-row items-center">
+                <TouchableOpacity
+                  onPress={() => {
+                    const options: SortOption[] = ['amount-desc', 'name', 'overdue', 'oldest'];
+                    const currentIndex = options.indexOf(filters.sort);
+                    const nextSort = options[(currentIndex + 1) % options.length];
+                    setFilters(prev => ({ ...prev, sort: nextSort }));
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                  className="flex-row items-center bg-surface dark:bg-dark-surface px-3 py-2 rounded-lg"
+                >
+                  <Ionicons 
+                    name="swap-vertical" 
+                    size={16} 
+                    color={isDark ? '#94a3b8' : '#64748b'} 
+                  />
+                  <ThemedText variant="muted" size="sm" className="ml-1 capitalize">
+                    {filters.sort.replace('-', ' ')}
+                  </ThemedText>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-
-          {/* Debtors List/Grid */}
-          {filteredDebtors.length === 0 ? (
+        }
+        renderSectionHeader={({ section: { title } }) => (
+          <View className="bg-surface-soft dark:bg-dark-surface-soft py-2 px-4">
+            <ThemedText variant="label" size="sm" className="font-semibold">
+              {title} ({sections.find(s => s.title === title)?.data.length || 0})
+            </ThemedText>
+          </View>
+        )}
+        renderItem={({ item }) => (
+          <View className="px-4 pb-2">
+            <DebtorCard
+              debtor={item}
+              onPress={() => {
+                setSelectedDebtor(item);
+                setShowDetailsDialog(true);
+              }}
+              onPayment={() => {
+                setSelectedDebtor(item);
+                setShowPaymentDialog(true);
+              }}
+              onMessage={() => handleMessage(item)}
+              onCall={() => handleCall(item)}
+              onCopyPhone={() => handleCopyPhone(item.contactPhone, item.contactName)}
+              viewMode="list"
+              riskLevel={getRiskLevel(item)}
+            />
+          </View>
+        )}
+        ListEmptyComponent={
+          <View className="p-4">
             <EmptyState
               icon={filters.search ? 'search-outline' : 'people-outline'}
               title={filters.search ? 'No Results Found' : 'No Debtors Yet'}
@@ -828,87 +1194,28 @@ export default function DebtorsScreen() {
                   ? `No debtors matching "${filters.search}"`
                   : "No one owes you money yet. Credit sales will appear here."
               }
-              actions={
+              action={
                 filters.search
-                  ? [
-                      {
-                        label: 'Clear Search',
-                        variant: 'outline',
-                        onPress: () => setFilters(prev => ({ ...prev, search: '' })),
-                        icon: 'refresh',
-                      },
-                    ]
-                  : [
-                      {
-                        label: 'New Credit Sale',
-                        variant: 'default',
-                        onPress: () => router.push('/(tabs)/sales'),
-                        icon: 'add-circle',
-                      },
-                    ]
+                  ? [{
+                      label: 'Clear Search',
+                      variant: 'outline',
+                      onPress: () => setFilters(prev => ({ ...prev, search: '' })),
+                      icon: 'refresh',
+                    }]
+                  : [{
+                      label: 'New Credit Sale',
+                      variant: 'default',
+                      onPress: () => router.push('/(tabs)/sales'),
+                      icon: 'add-circle',
+                    }]
               }
             />
-          ) : filters.viewMode === 'grid' ? (
-            <View className="flex-row flex-wrap gap-3">
-              {filteredDebtors.map((debtor) => (
-                <View key={debtor.contactId} className="w-[48%]">
-                  <DebtorCard
-                    debtor={debtor}
-                    onPress={() => {
-                      setSelectedDebtor(debtor);
-                      setShowDetailsDialog(true);
-                    }}
-                    onPayment={() => {
-                      setSelectedDebtor(debtor);
-                      setShowPaymentDialog(true);
-                    }}
-                    onMessage={() => handleMessage(debtor)}
-                    onCall={() => handleCall(debtor)}
-                    onCopyPhone={() => handleCopyPhone(debtor.contactPhone, debtor.contactName)}
-                    viewMode="grid"
-                    riskLevel={getRiskLevel(debtor)}
-                  />
-                </View>
-              ))}
-            </View>
-          ) : (
-            <SectionList
-              sections={sections}
-              keyExtractor={(item) => item.contactId}
-              renderSectionHeader={({ section: { title } }) => (
-                <View className="bg-surface-soft dark:bg-dark-surface-soft py-2">
-                  <ThemedText variant="label" size="sm" className="font-semibold">
-                    {title}
-                  </ThemedText>
-                </View>
-              )}
-              renderItem={({ item }) => (
-                <DebtorCard
-                  debtor={item}
-                  onPress={() => {
-                    setSelectedDebtor(item);
-                    setShowDetailsDialog(true);
-                  }}
-                  onPayment={() => {
-                    setSelectedDebtor(item);
-                    setShowPaymentDialog(true);
-                  }}
-                  onMessage={() => handleMessage(item)}
-                  onCall={() => handleCall(item)}
-                  onCopyPhone={() => handleCopyPhone(item.contactPhone, item.contactName)}
-                  viewMode="list"
-                  riskLevel={getRiskLevel(item)}
-                />
-              )}
-              stickySectionHeadersEnabled
-              scrollEnabled={false}
-            />
-          )}
-        </View>
-      </ScrollView>
+          </View>
+        }
+        contentContainerStyle={{ paddingBottom: 20 }}
+      />
 
-      {/* Payment Dialog */}
-      <CustomDialog
+            <CustomDialog
         visible={showPaymentDialog}
         title={`Record Payment - ${selectedDebtor?.contactName || ''}`}
         variant="info"

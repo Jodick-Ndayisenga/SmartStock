@@ -10,6 +10,7 @@ import { ActivityIndicator, View, Text } from "react-native";
 import "@/app/global.css";
 import { GluestackUIProvider } from "@/components/ui/gluestack-ui-provider";
 import { ROUTES } from "@/constants/routes";
+import { allowedProtectedPrefixes } from "@/constants/allowedPaths";
 
 function AppContent() {
   const { 
@@ -73,25 +74,6 @@ function AppContent() {
         const isInAuthGroup = currentRouteGroup === '(auth)';
         const isInTabsGroup = currentRouteGroup === '(tabs)';
         
-        // 🛡️ ALLOW LIST: Specific routes users can access even if they look like "Auth" or root
-        const allowedProtectedPrefixes = [
-          '(tabs)',
-          'create-shop',
-          'products',
-          'sales',
-          'settings',
-          'notifications',
-          'expenses',
-          'reports',
-          'profile',
-          'stock',
-          'select-shop',
-          // ✅ Explicitly allow these auth-sub-routes for logged-in users
-          '(auth)/add-product',
-          '(auth)/edit-product',
-          '(auth)/templates-products'
-        ];
-
         // Check if current path matches any allowed prefix
         const isAllowedRoute = allowedProtectedPrefixes.some(prefix => 
           currentPath === prefix || currentPath.startsWith(prefix + '/') || currentPath.startsWith(prefix)

@@ -246,8 +246,8 @@ const TodayPerformanceWidgetInner = ({
           </ThemedText>
           <View className="flex-row items-baseline flex-wrap">
             <ThemedText
-              variant="heading"
-              size="3xl"
+              variant="display"
+              size="4xl"
               className={`font-bold ${hasSales ? 'text-brand' : 'text-muted'}`}
             >
               {formatCurrency(data.sales)}
@@ -285,10 +285,10 @@ const TodayPerformanceWidgetInner = ({
         <View className="flex-row justify-between mt-4 pt-4 border-t border-border dark:border-dark-border">
           <View className="flex-1">
             <ThemedText variant="muted" size="xs">
-              Avg. Transaction
+              Avg. per transaction
             </ThemedText>
             <ThemedText
-              variant="heading"
+              variant="label"
               size="base"
               className={`font-semibold ${!hasSales && 'text-muted'}`}
             >
@@ -301,7 +301,7 @@ const TodayPerformanceWidgetInner = ({
               Products
             </ThemedText>
             <ThemedText
-              variant="heading"
+              variant="label"
               size="base"
               className="font-semibold text-center"
             >
@@ -314,7 +314,7 @@ const TodayPerformanceWidgetInner = ({
               Margin
             </ThemedText>
             <ThemedText
-              variant="heading"
+              variant="label"
               size="base"
               className={`font-semibold ${
                 !hasSales 
@@ -401,7 +401,10 @@ const enhance = withObservables(
         .observe(),
       products: database
         .get<Product>("products")
-        .query(Q.where("shop_id", currentShop.id))
+        .query(
+          Q.where("shop_id", currentShop.id),
+          Q.where('is_active', true) // Only fetch active products
+        )
         .observe(),
     };
   }

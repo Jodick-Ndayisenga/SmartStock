@@ -25,15 +25,10 @@ import { useColorScheme } from 'nativewind';
 import { Product, UnitType } from '@/database/models/Product';
 import { StockMovement, MovementType } from '@/database/models/StockMovement';
 
-// Unit Conversion System
-import { UNIT_OPTIONS } from '@/constants/unitOptions';
 import { 
   unitConverter,
   getUnitsByType,
   getUnitInfo,
-  formatConversion,
-  ConversionResult,
-  UnitInfo,
 } from '@/utils/unitConversions';
 
 import {
@@ -189,7 +184,7 @@ const defaultFormData: ProductFormData = {
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
-
+const allProducts = database.get<Product>('products');
 export default function EditProductScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -224,6 +219,28 @@ export default function EditProductScreen() {
 const [selectedUnitCategory, setSelectedUnitCategory] = useState<'all' | 'piece' | 'pack' | 'weight' | 'volume' | 'length'>('all');
 // First, add state for showing/hiding base unit selector
 const [showBaseUnitSelector, setShowBaseUnitSelector] = useState(false);
+
+
+
+// update product to be active or deactive if formData.isActive is changed
+useEffect(() => {
+  if (product) {
+    const updateActiveStatus = async () => {  
+      try {
+        await database.write(async () => {          
+          await product.update(p => {
+            p.isActive = formData.isActive;
+          });
+        });
+      } catch (error) {
+        console.error('Error updating product:', error);
+      }
+    };
+    updateActiveStatus();
+  }
+}, [product, formData.isActive]);  
+
+
 
 // Get available base units based on unit type
 const getAvailableBaseUnits = useCallback(() => {
@@ -1924,7 +1941,7 @@ const setupProgress = useMemo(() => {
 
                 {/* Show conversion between purchase and selling units if different */}
                 {formData.sellingUnit !== formData.purchaseUnit && (
-                  <View className="bg-info-soft dark:bg-dark-info-soft p-3 rounded-lg">
+                  <View className="bg-surface-muted dark:bg-dark-surface-muted p-3 rounded-sm">
                     <View className="flex-row justify-between items-center">
                       <ThemedText variant="muted" size="xs">Conversion achat → vente:</ThemedText>
                       <ThemedText variant="default" size="sm" className="font-semibold">

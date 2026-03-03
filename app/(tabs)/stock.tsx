@@ -1,8 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
+// app/(tabs)/stock.tsx
+import React, { useState, useMemo } from 'react';
 import { 
   View, 
-  ScrollView, 
   FlatList, 
   TouchableOpacity,
   RefreshControl,
@@ -12,6 +12,7 @@ import {
 import { useRouter } from 'expo-router';
 import database from '@/database';
 import { Q } from '@nozbe/watermelondb';
+import { withObservables } from '@nozbe/watermelondb/react';
 import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -20,10 +21,8 @@ import PremiumHeader from '@/components/layout/PremiumHeader';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Loading } from '@/components/ui/Loading';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { StockStatusBadge } from '@/components/ui/StockStatusBadge';
-import { SearchInput } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { FAB } from '@/components/ui/Button';
 
@@ -32,24 +31,11 @@ import { Product } from '@/database/models/Product';
 import { StockMovement } from '@/database/models/StockMovement';
 import { useAuth } from '@/context/AuthContext';
 
-interface ProductStock {
-  id: string;
-  name: string;
-  sku: string;
-  category: string;
+interface ProductStock extends Product {
   currentStock: number;
-  lowStockThreshold: number;
-  sellingPricePerBase: number;
-  costPricePerBase: number;
   stockValue: number;
   potentialRevenue: number;
-  unitType: string;
-  baseUnit: string;
-  sellingUnit: string;
-  isPerishable: boolean;
-  imageUrl?: string;
   lastMovement?: number;
-  profitMargin: number;
 }
 
 interface StockSummary {
@@ -66,199 +52,187 @@ interface StockSummary {
 
 type StockFilter = 'all' | 'low-stock' | 'out-of-stock' | 'perishable' | 'high-value' | 'critical';
 type SortBy = 'name' | 'stock' | 'value' | 'revenue' | 'profit' | 'recent';
+type ViewMode = 'grid' | 'list';
 
-export default function StockScreen() {
+// Inner component that receives observable data
+const StockScreenInner = ({ 
+  products = [],
+  stockMovements = []
+}: { 
+  products?: Product[],
+  stockMovements?: StockMovement[]
+}) => {
   const router = useRouter();
   const { t } = useTranslation();
+  const { currentShop } = useAuth();
   
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [products, setProducts] = useState<ProductStock[]>([]);
-  const [summary, setSummary] = useState<StockSummary>({
-    totalProducts: 0,
-    totalStockValue: 0,
-    totalPotentialRevenue: 0,
-    totalPotentialProfit: 0,
-    lowStockItems: 0,
-    outOfStockItems: 0,
-    perishableItems: 0,
-    highValueItems: 0,
-    criticalItems: 0,
-  });
   const [filter, setFilter] = useState<StockFilter>('all');
   const [sortBy, setSortBy] = useState<SortBy>('name');
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
-  const { currentShop } = useAuth();
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
 
-  useEffect(() => {
-    loadStockData();
-  }, []);
-
-  const loadStockData = async () => {
-    try {
-      setLoading(true);
-
-      if (currentShop) {
-        const { stockData, summaryData } = await getStockData(currentShop.id);
-        setProducts(stockData);
-        setSummary(summaryData);
-      }
-    } catch (error) {
-      console.error('Error loading stock data:', error);
-      Alert.alert('Error', 'Failed to load stock data');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+  // Define getStockStatus BEFORE using it
+  const getStockStatus = (stock: number, threshold: number): 'in-stock' | 'low-stock' | 'out-of-stock' => {
+    if (stock === 0) return 'out-of-stock';
+    if (stock <= threshold) return 'low-stock';
+    return 'in-stock';
   };
 
-  const getStockData = async (shopId: string) => {
-    // Get all active products - FIXED: Use the actual stockQuantity field from products table
-    const productsData = await database.get<Product>('products')
-      .query(
-        Q.where('shop_id', shopId),
-        Q.where('is_active', true)
-      )
-      .fetch();
+  // Calculate current stock for each product based on movements
+  const productsWithStock = useMemo((): ProductStock[] => {
+    // Create a map of stock movements per product
+    const stockMap = new Map<string, number>();
+    const lastMovementMap = new Map<string, number>();
+    
+    // Sort movements by timestamp to ensure correct order
+    const sortedMovements = [...stockMovements].sort((a, b) => a.timestamp - b.timestamp);
+    
+    sortedMovements.forEach(movement => {
+      const currentStock = stockMap.get(movement.productId) || 0;
+      
+      switch (movement.movementType) {
+        case 'IN':
+        case 'TRANSFER_IN':
+          stockMap.set(movement.productId, currentStock + movement.quantity);
+          break;
+        case 'SALE':
+        case 'TRANSFER_OUT':
+          stockMap.set(movement.productId, currentStock - movement.quantity);
+          break;
+        case 'ADJUSTMENT':
+          stockMap.set(movement.productId, currentStock + movement.quantity);
+          break;
+      }
+      
+      // Track last movement timestamp
+      const existingLastMovement = lastMovementMap.get(movement.productId) || 0;
+      if (movement.timestamp > existingLastMovement) {
+        lastMovementMap.set(movement.productId, movement.timestamp);
+      }
+    });
 
-    const stockData: ProductStock[] = [];
+    // Combine products with their current stock
+    return products
+      .filter(product => product.isActive)
+      .map(product => {
+        const currentStock = stockMap.get(product.id) || 0;
+        
+        // Add computed properties to the Product instance
+        const productWithStock = product as ProductStock;
+        
+        // Use Object.defineProperty to add read-only properties
+        Object.defineProperty(productWithStock, 'currentStock', {
+          value: currentStock,
+          writable: false,
+          enumerable: true, // Make enumerable so it appears in loops
+          configurable: true,
+        });
+        
+        Object.defineProperty(productWithStock, 'stockValue', {
+          value: currentStock * (product.costPricePerBase || 0),
+          writable: false,
+          enumerable: true,
+          configurable: true,
+        });
+        
+        Object.defineProperty(productWithStock, 'potentialRevenue', {
+          value: currentStock * (product.sellingPricePerBase || 0),
+          writable: false,
+          enumerable: true,
+          configurable: true,
+        });
+        
+        Object.defineProperty(productWithStock, 'lastMovement', {
+          value: lastMovementMap.get(product.id),
+          writable: false,
+          enumerable: true,
+          configurable: true,
+        });
+        
+        return productWithStock;
+      });
+  }, [products, stockMovements]);
+
+  // Calculate summary statistics
+  const summary = useMemo((): StockSummary => {
     let totalStockValue = 0;
     let totalPotentialRevenue = 0;
-    let totalPotentialProfit = 0;
     let lowStockItems = 0;
     let outOfStockItems = 0;
     let perishableItems = 0;
     let highValueItems = 0;
     let criticalItems = 0;
 
-    for (const product of productsData) {
-      // FIXED: Use the stock_quantity field directly from products table
-      const currentStock = product.stockQuantity || 0;
-      const stockValue = currentStock * (product.costPricePerBase || 0);
-      const potentialRevenue = currentStock * (product.sellingPricePerBase || 0);
-      const potentialProfit = potentialRevenue - stockValue;
-      const profitMargin = product.costPricePerBase > 0 ? 
-        ((product.sellingPricePerBase - product.costPricePerBase) / product.costPricePerBase) * 100 : 0;
+    productsWithStock.forEach(product => {
+      const currentStock = (product as ProductStock).currentStock;
+      const stockValue = (product as ProductStock).stockValue;
+      const potentialRevenue = (product as ProductStock).potentialRevenue;
       
-      const lastMovement = await getLastMovementDate(product.id);
-
-      const productStock: ProductStock = {
-        id: product.id,
-        name: product.name,
-        sku: product.sku || 'N/A',
-        category: product.category || 'Uncategorized',
-        currentStock,
-        lowStockThreshold: product.lowStockThreshold || 10,
-        sellingPricePerBase: product.sellingPricePerBase || 0,
-        costPricePerBase: product.costPricePerBase || 0,
-        stockValue,
-        potentialRevenue,
-        profitMargin,
-        unitType: product.unitType,
-        baseUnit: product.baseUnit,
-        sellingUnit: product.sellingUnit,
-        isPerishable: product.isPerishable || false,
-        imageUrl: product.imageUrl,
-        lastMovement,
-      };
-
-      stockData.push(productStock);
-      
-      // Update summary calculations
       totalStockValue += stockValue;
       totalPotentialRevenue += potentialRevenue;
-      totalPotentialProfit += potentialProfit;
-
-      // Count categories
-      const status = getStockStatus(currentStock, product.lowStockThreshold || 10);
+      
+      const status = getStockStatus(currentStock, product.lowStockThreshold);
       if (status === 'out-of-stock') outOfStockItems++;
       if (status === 'low-stock') lowStockItems++;
       if (product.isPerishable) perishableItems++;
-      if (stockValue > 100000) highValueItems++; // Items worth more than 100,000 FBU
+      if (stockValue > 100000) highValueItems++;
       if (status === 'out-of-stock' && product.isPerishable) criticalItems++;
-    }
-
-    // Apply sorting
-    stockData.sort((a, b) => {
-      switch (sortBy) {
-        case 'stock':
-          return a.currentStock - b.currentStock;
-        case 'value':
-          return b.stockValue - a.stockValue;
-        case 'revenue':
-          return b.potentialRevenue - a.potentialRevenue;
-        case 'profit':
-          return b.profitMargin - a.profitMargin;
-        case 'recent':
-          return (b.lastMovement || 0) - (a.lastMovement || 0);
-        case 'name':
-        default:
-          return a.name.localeCompare(b.name);
-      }
     });
 
-    const summaryData: StockSummary = {
-      totalProducts: stockData.length,
+    return {
+      totalProducts: productsWithStock.length,
       totalStockValue,
       totalPotentialRevenue,
-      totalPotentialProfit,
+      totalPotentialProfit: totalPotentialRevenue - totalStockValue,
       lowStockItems,
       outOfStockItems,
       perishableItems,
       highValueItems,
       criticalItems,
     };
+  }, [productsWithStock]);
 
-    return { stockData, summaryData };
-  };
-
-  // Keep this function for movement history, but use stock_quantity for current stock
-  const getLastMovementDate = async (productId: string): Promise<number | undefined> => {
-    try {
-      const movements = await database.get<StockMovement>('stock_movements')
-        .query(
-          Q.where('product_id', productId),
-          Q.sortBy('timestamp', Q.desc),
-          Q.take(1)
-        )
-        .fetch();
-      
-      return movements[0]?.timestamp;
-    } catch (error) {
-      console.error('Error getting last movement:', error);
-      return undefined;
-    }
-  };
-
-  const onRefresh = () => {
-    setRefreshing(true);
-    loadStockData();
-  };
-
-  const getStockStatus = (stock: number, threshold: number) => {
-    if (stock === 0) return 'out-of-stock';
-    if (stock <= threshold) return 'low-stock';
-    return 'in-stock';
-  };
-
-  const filteredProducts = products.filter(product => {
-    const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         product.sku?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         product.category?.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const status = getStockStatus(product.currentStock, product.lowStockThreshold);
-    
-    switch (filter) {
-      case 'all': return matchesSearch;
-      case 'low-stock': return matchesSearch && status === 'low-stock';
-      case 'out-of-stock': return matchesSearch && status === 'out-of-stock';
-      case 'perishable': return matchesSearch && product.isPerishable;
-      case 'high-value': return matchesSearch && product.stockValue > 100000;
-      case 'critical': return matchesSearch && status === 'out-of-stock' && product.isPerishable;
-      default: return matchesSearch;
-    }
-  });
+  const filteredProducts = useMemo(() => {
+    return productsWithStock
+      .filter(product => {
+        const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                             product.sku?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                             product.category?.toLowerCase().includes(searchQuery.toLowerCase());
+        
+        const status = getStockStatus((product as ProductStock).currentStock, product.lowStockThreshold);
+        
+        switch (filter) {
+          case 'all': return matchesSearch;
+          case 'low-stock': return matchesSearch && status === 'low-stock';
+          case 'out-of-stock': return matchesSearch && status === 'out-of-stock';
+          case 'perishable': return matchesSearch && product.isPerishable;
+          case 'high-value': return matchesSearch && (product as ProductStock).stockValue > 100000;
+          case 'critical': return matchesSearch && status === 'out-of-stock' && product.isPerishable;
+          default: return matchesSearch;
+        }
+      })
+      .sort((a, b) => {
+        const aStock = a as ProductStock;
+        const bStock = b as ProductStock;
+        
+        switch (sortBy) {
+          case 'stock':
+            return aStock.currentStock - bStock.currentStock;
+          case 'value':
+            return bStock.stockValue - aStock.stockValue;
+          case 'revenue':
+            return bStock.potentialRevenue - aStock.potentialRevenue;
+          case 'profit':
+            return (bStock.potentialRevenue - bStock.stockValue) - (aStock.potentialRevenue - aStock.stockValue);
+          case 'recent':
+            return (bStock.lastMovement || 0) - (aStock.lastMovement || 0);
+          case 'name':
+          default:
+            return a.name.localeCompare(b.name);
+        }
+      });
+  }, [productsWithStock, searchQuery, filter, sortBy]);
 
   const formatCurrency = (amount: number) => {
     return `FBU ${amount.toLocaleString('fr-FR')}`;
@@ -274,9 +248,30 @@ export default function StockScreen() {
     return formatCurrency(value);
   };
 
+  const handleQuickAction = (action: 'add-stock' | 'adjust' | 'view' | 'sell', product: ProductStock) => {
+    switch (action) {
+      case 'sell':
+        router.push(`/sales?productId=${product.id}`);
+        break;
+      case 'add-stock':
+      case 'adjust':
+      case 'view':
+        router.push(`/edit-product/${product.id}`);
+        break;
+    }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([
+      database.get<Product>('products').query().fetch(),
+      database.get<StockMovement>('stock_movements').query().fetch(),
+    ]);
+    setRefreshing(false);
+  };
 
   const EnhancedStockSummaryCard = () => (
-    <Card variant="elevated" className="mb-4 mx-4">
+    <Card variant="elevated" className="mb-4 mx-2 mt-6">
       <CardHeader
         title="Stock Evaluation Summary"
         subtitle="Complete inventory analysis"
@@ -294,7 +289,7 @@ export default function StockScreen() {
         {/* Top Row - Financial Overview */}
         <View className="flex-row flex-wrap justify-between mb-4">
           <View className="w-[48%] mb-3">
-            <View className="bg-brand/10 rounded-xl p-2 items-center">
+            <View className="bg-brand/10 rounded-sm p-2 items-center">
               <ThemedText variant="muted" size="sm" className="mb-1">
                 Inventory Value
               </ThemedText>
@@ -308,7 +303,7 @@ export default function StockScreen() {
           </View>
 
           <View className="w-[48%] mb-3">
-            <View className="bg-success/10 rounded-xl p-2 items-center">
+            <View className="bg-success/10 rounded-sm p-2 items-center">
               <ThemedText variant="muted" size="sm" className="mb-1">
                 Potential Revenue
               </ThemedText>
@@ -325,7 +320,7 @@ export default function StockScreen() {
         {/* Middle Row - Profit & Products */}
         <View className="flex-row flex-wrap justify-between mb-4">
           <View className="w-[48%] mb-3">
-            <View className="bg-warning/10 rounded-xl p-2 items-center">
+            <View className="bg-warning/10 rounded-sm p-2 items-center">
               <ThemedText variant="muted" size="sm" className="mb-1">
                 Potential Profit
               </ThemedText>
@@ -338,8 +333,8 @@ export default function StockScreen() {
             </View>
           </View>
 
-          <View className="w-[48%] mb-3 border border-text-muted/20 dark:border-dark-text-muted/20 rounded-xl">
-            <View className="bg-info/10 rounded-xl p-2 items-center">
+          <View className="w-[48%] mb-3 border border-text-muted/20 dark:border-dark-text-muted/20 rounded-sm">
+            <View className="bg-info/10 rounded-sm p-2 items-center">
               <ThemedText variant="muted" size="sm" className="mb-1">
                 Active Products
               </ThemedText>
@@ -356,7 +351,7 @@ export default function StockScreen() {
         {/* Bottom Row - Status Overview */}
         <View className="flex-row flex-wrap justify-between">
           <View className="w-[32%]">
-            <View className={`rounded-xl p-2 items-center ${
+            <View className={`rounded-[0px] p-2 items-center ${
               summary.lowStockItems > 0 ? 'bg-warning/10' : 'bg-success/10'
             }`}>
               <ThemedText variant="muted" size="xs" className="mb-1">
@@ -373,7 +368,7 @@ export default function StockScreen() {
           </View>
 
           <View className="w-[32%]">
-            <View className={`rounded-xl p-2 items-center ${
+            <View className={`rounded-[0px] p-2 items-center ${
               summary.outOfStockItems > 0 ? 'bg-error/10' : 'bg-success/10'
             }`}>
               <ThemedText variant="muted" size="xs" className="mb-1">
@@ -390,7 +385,7 @@ export default function StockScreen() {
           </View>
 
           <View className="w-[32%]">
-            <View className={`rounded-xl p-2 items-center ${
+            <View className={`rounded-[0px] p-2 items-center ${
               summary.criticalItems > 0 ? 'bg-error/10' : 'bg-success/10'
             }`}>
               <ThemedText variant="muted" size="xs" className="mb-1">
@@ -424,8 +419,8 @@ export default function StockScreen() {
           <View className="items-center">
             <ThemedText variant="muted" size="xs">Margin Avg</ThemedText>
             <ThemedText variant="default" size="sm" className="font-semibold">
-              {summary.totalProducts > 0 ? 
-                Math.round(summary.totalPotentialProfit / summary.totalStockValue * 100) : 0}%
+              {summary.totalProducts > 0 && summary.totalStockValue > 0 ? 
+                Math.round((summary.totalPotentialProfit / summary.totalStockValue) * 100) : 0}%
             </ThemedText>
           </View>
         </View>
@@ -433,8 +428,8 @@ export default function StockScreen() {
     </Card>
   );
 
-    const StockListItem = ({ product }: { product: ProductStock }) => (
-    <Card variant="elevated" className="mx-4 my-2">
+  const StockListItem = ({ product }: { product: ProductStock }) => (
+    <Card variant="elevated" className="mx-2 my-2">
       <CardContent className="p-4">
         <View className="flex-row items-center">
           {/* Product Image */}
@@ -501,20 +496,15 @@ export default function StockScreen() {
             Add Stock
           </Button>
           <Button
-            variant="outline"
+            variant="warning"
             size="sm"
-            onPress={() => handleQuickAction('adjust', product)}
+            onPress={() => handleQuickAction('sell', product)}
             className="flex-1"
-            icon="swap-vertical-outline"
+            icon="cart-outline"
           >
-            Adjust
+            Sell
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onPress={() => handleQuickAction('view', product)}
-            icon="eye-outline"
-          >Eye</Button>
+          
         </View>
       </CardContent>
     </Card>
@@ -598,82 +588,14 @@ export default function StockScreen() {
     </Card>
   );
 
-    const QuickActions = () => (
-    <Card variant="elevated" className="mx-4 mb-4 mt-2">
-      <CardHeader
-        title="Quick Actions"
-        subtitle="Manage your inventory quickly"
-      />
-      <CardContent className="p-4">
-        <View className="flex-row flex-wrap justify-between">
-          <Button
-            variant="outline"
-            size="sm"
-            onPress={() => router.push('/add-product')}
-            icon="add-outline"
-            className="w-[48%] mb-3"
-          >
-            Add Stock
-          </Button>
-          
-          <Button
-            variant="outline"
-            size="sm"
-            onPress={() => {/* Navigate to stock take */}}
-            icon="clipboard-outline"
-            className="w-[48%] mb-3"
-          >
-            Stock Take
-          </Button>
-          
-          <Button
-            variant="outline"
-            size="sm"
-            onPress={() => {/* Navigate to low stock report */}}
-            icon="alert-circle-outline"
-            className="w-[48%]"
-          >
-            Low Stock Report
-          </Button>
-          
-          <Button
-            variant="outline"
-            size="sm"
-            onPress={() => {/* Navigate to stock valuation */}}
-            icon="bar-chart-outline"
-            className="w-[48%]"
-          >
-            Stock Valuation
-          </Button>
-        </View>
-      </CardContent>
-    </Card>
-  );
-
-
-  // Update the handleQuickAction function
-  const handleQuickAction = (action: 'add-stock' | 'adjust' | 'view', product: ProductStock) => {
-    switch (action) {
-      case 'add-stock':
-        router.push(`/edit-product/${product.id}`);
-        break;
-      case 'adjust':
-        router.push(`/edit-product/${product.id}`);
-        break;
-      case 'view':
-        router.push(`/edit-product/${product.id}`);
-        break;
-    }
-  };
-
-  if(!currentShop?.id) {
+  if (!currentShop) {
     return (
       <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
         <PremiumHeader 
           title={t('stock.title')}
           showBackButton
         />
-         <EmptyState
+        <EmptyState
           icon="business-outline"
           title="No Shop Found"
           description="Create a shop first to manage products"
@@ -682,18 +604,18 @@ export default function StockScreen() {
             onPress: () => router.push('/(auth)/create-shop')
           }}
         />
-        
-      
       </View>
-    )
-  }else{
-      return (
+    );
+  }
+
+  return (
     <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
       <PremiumHeader 
         title={t('stock.title')}
         showBackButton
-        searchable = {currentShop ? true : false}
-        searchPlaceholder='Search for items in stock'
+        searchable={true}
+        searchPlaceholder="Search for items in stock"
+        onSearch={setSearchQuery}
       />
 
       <FlatList
@@ -706,41 +628,18 @@ export default function StockScreen() {
         }
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingBottom: 100
+          paddingBottom: 100,
+          paddingHorizontal: 0
         }}
         ListHeaderComponent={
-          <>
-            {/* Quick Actions */}
-            {
-              currentShop && (
-                <QuickActions />
-              )
-            }
-            
-            {/* Enhanced Stock Summary */}
-            {
-              currentShop && filteredProducts?.length > 0 && (
-                <EnhancedStockSummaryCard />
-              )
-            }
-
-            {/* Filters and Search */}
-            {/* <Card variant="elevated" className="mx-4 mb-4">
-              <CardContent className="p-4">
-                <SearchInput
-                  placeholder="Search products by name, SKU, or category..."
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  onClear={() => setSearchQuery('')}
-                />
-              </CardContent>
-            </Card> */}
-          </>
+          currentShop && filteredProducts.length > 0 
+            ? <EnhancedStockSummaryCard /> 
+            : null // Return null instead of false
         }
         renderItem={({ item }) => 
           viewMode === 'grid' ? 
-          <StockGridItem product={item} /> : 
-          <StockListItem product={item} />
+          <StockGridItem product={item as ProductStock} /> : 
+          <StockListItem product={item as ProductStock} />
         }
         ListEmptyComponent={
           <EmptyState
@@ -774,6 +673,41 @@ export default function StockScreen() {
       </FAB>
     </View>
   );
-  }
+};
 
+// Enhance with observables for real-time updates
+const enhance = withObservables(
+  ['currentShop'],
+  ({ currentShop }: { currentShop: any }) => {
+    if (!currentShop) {
+      return {
+        products: [],
+        stockMovements: [],
+      };
+    }
+
+    return {
+      products: database
+        .get<Product>('products')
+        .query(
+          Q.where('shop_id', currentShop.id),
+          Q.where('is_active', true)
+        )
+        .observe(),
+      stockMovements: database
+        .get<StockMovement>('stock_movements')
+        .query(
+          Q.where('shop_id', currentShop.id)
+        )
+        .observe(),
+    };
+  }
+);
+
+const StockScreenWithObservables = enhance(StockScreenInner);
+
+// Main exported component
+export default function StockScreen() {
+  const { currentShop } = useAuth();
+  return <StockScreenWithObservables currentShop={currentShop} />;
 }

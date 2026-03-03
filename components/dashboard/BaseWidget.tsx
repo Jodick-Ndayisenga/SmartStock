@@ -13,7 +13,7 @@ import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 
 interface BaseWidgetProps<T> {
-  title: string;
+  title?: string;
   children: (data: T) => React.ReactNode;
   fetchData: () => Promise<T>;
   loadingComponent?: React.ReactNode;

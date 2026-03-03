@@ -36,7 +36,6 @@ import { ThemedText } from "@/components/ui/ThemedText";
 import { Select } from "@/components/ui/Select";
 import { Badge } from "@/components/ui/Badge";
 import { useColorScheme } from "nativewind";
-import { es } from "zod/v4/locales";
 
 // -------------------------
 // Constants & Templates for Burundi
@@ -1454,7 +1453,7 @@ export default function AddProductScreen() {
           Object.assign(p, {
             ...productData,
             shopId: shopId as string,
-            isActive: true,
+            isActive: false,
             stockQuantity: 0,
             barcode: '',
             description: productData.description || '',
@@ -1484,7 +1483,7 @@ export default function AddProductScreen() {
             Object.assign(p, {
               ...productData,
               shopId: shopId as string,
-              isActive: true,
+              isActive: false,
               stockQuantity: 0,
               sku: productData.sku || generateSKU(productData.name),
               category: productData.category || 'other',

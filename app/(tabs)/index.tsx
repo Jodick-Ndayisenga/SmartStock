@@ -367,9 +367,9 @@ export default function DashboardScreen() {
     },
     {
       icon: 'people',
-      label: 'Add Debtor',
+      label: 'Add Customer',
       gradient: isDark ? ['#d97706', '#b45309'] : ['#f59e0b', '#d97706'],
-      onPress: () => router.push('/shops/contacts/add?role=customer'),
+      onPress: () => router.push(`/shops/${currentShop?.id}/contacts/add?type=customer`),
     },
     {
       icon: 'cube',
@@ -481,34 +481,34 @@ export default function DashboardScreen() {
           </View>
 
           {/* Row 1: Revenue Distribution + Sales Trend with proper gap */}
-          {/* <View className="flex-row flex-wrap mb-8">
+          <View className="flex-row flex-wrap mb-8">
             <View className="w-[100%] mr-[4%]">
               <RevenueDistributionWidget />
             </View>
             <View className="w-[100%] mt-4">
               <SalesTrendWidget />
             </View>
-          </View> */}
+          </View>
 
           {/* Row 2: Payment Methods + Stock Health with proper gap */}
-          {/* <View className="flex-row flex-wrap mb-8">
-            <View className="w-[100%] mr-[4%] mt-4">
+          <View className="flex-row flex-wrap mb-8 gap-4">
+            {/* <View className="w-[100%] mr-[4%] mt-4">
               <PaymentMethodsWidget />
-            </View>
-            <View className="w-[48%]">
+            </View> */}
+            <View className="w-[100%]">
               <StockHealthWidget />
             </View>
-          </View> */}
+          </View>
 
           {/* Credit Health - Full width with spacing */}
-          {/* <View className="mb-8">
+          <View className="mb-8">
             <CreditHealthWidget />
-          </View> */}
+          </View>
 
           {/* Category Distribution - Full width with spacing */}
-          {/* <View className="mb-8">
+          <View className="mb-8">
             <CategoryDistributionWidget />
-          </View> */}
+          </View>
 
           {/* Additional spacing for bottom navigation - increased for better scroll experience */}
           <View className="h-24" />
