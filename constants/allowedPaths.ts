@@ -18,4 +18,9 @@ export const allowedProtectedPrefixes = [
     '(auth)/cash-flow',
     '(auth)/manage-shop',
     '(auth)/create-shop',
+    '(auth)/cash-account',
+    '(auth)/account-details',
+    '(auth)/add-transaction',
+    '(auth)/edit-account',
+    '(auth)/payment',
 ];

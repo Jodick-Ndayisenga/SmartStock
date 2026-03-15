@@ -25,7 +25,8 @@
     "sunday": "Sunday",
     "getStarted": "Get started",
     "creating": "Creating...",
-    "customer": "Customer"
+    "customer": "Customer",
+    "login": "Login"
   },
   "auth": {
     "welcome": "Welcome",

@@ -23,7 +23,7 @@ export const Badge = ({
     success: 'bg-success/10 border border-success/20',
     warning: 'bg-warning/10 border border-warning/20',
     error: 'bg-error/10 border border-error/20',
-    outline: 'bg-transparent border border-border',
+    outline: 'bg-transparent border border-surface-muted dark:border-dark-surface-soft',
   };
 
   const textSizeClasses = {
@@ -36,7 +36,7 @@ export const Badge = ({
     success: 'text-success',
     warning: 'text-warning',
     error: 'text-error',
-    outline: 'text-text',
+    outline: 'text-text-muted dark:text-dark-text-muted',
   };
 
   return (

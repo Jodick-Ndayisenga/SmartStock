@@ -172,7 +172,7 @@ export default function PremiumHeader({
         className="overflow-hidden z-50 rounded-b-[10px]"
       >
         <View className={`
-          pb-4 px-4 pt-6
+          pb-4 px-4 pt-2
           ${transparent 
             ? 'bg-surface/95 dark:bg-dark-surface/95' 
             : 'bg-brand dark:bg-dark-brand'

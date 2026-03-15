@@ -28,7 +28,8 @@
     "saving": "Sauvegarde...",
     "deleting": "Suppression...",
     "update": "Mettre à jour",
-    "customer": "Client"
+    "customer": "Client",
+    "login": "Connexion"
   },
   "auth": {
     "welcome": "Bienvenue",

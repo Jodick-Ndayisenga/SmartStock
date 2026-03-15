@@ -26,6 +26,8 @@
 
 // // Services
 // import { DebtService, PaymentHistoryItem, DebtorSummary } from '@/services/debtService';
+// import database from '@/database';
+// import Transaction from '@/database/models/Transaction';
 
 // // Types
 // type TimeRange = 'week' | 'month' | 'quarter' | 'year' | 'all';
@@ -101,25 +103,43 @@
 //     if (!currentShop) return;
 
 //     try {
-//       // Load all debtors
+//       setLoading(true);
+      
+//       // Load all debtors first
 //       const debtorsData = await DebtService.getDebtorSummaries(currentShop.id);
 //       setDebtors(debtorsData);
 
-//       // Load all payments across all debtors
-//       const allPayments: PaymentHistoryItem[] = [];
-      
-//       for (const debtor of debtorsData) {
-//         const debtorPayments = await DebtService.getDebtorPaymentHistory(debtor.contactId, 100);
-//         allPayments.push(...debtorPayments.map(p => ({
-//           ...p,
-//           debtorName: debtor.contactName,
-//           debtorPhone: debtor.contactPhone,
-//         })));
-//       }
+//       // Load all payments from transactions that are from debtors
+//       // Since we don't have a direct payment history table, we need to query transactions
+//       const transactions = await database
+//         .get<Transaction>('transactions')
+//         .query()
+//         .fetch();
+
+//       // Filter transactions that are payments (you might need to adjust this logic based on your schema)
+//       const paymentTransactions = transactions.filter(t => 
+//         t.transactionType === 'payment' || 
+//         (t.transactionType === 'sale' && t.balanceDue === 0 && t.contactId)
+//       );
+
+//       // Map to PaymentHistoryItem format
+//       const paymentHistory: PaymentHistoryItem[] = paymentTransactions.map(t => {
+//         const debtor = debtorsData.find(d => d.contactId === t.contactId);
+//         return {
+//           id: t.id,
+//           amount: t.totalAmount,
+//           date: t.transactionDate,
+//           method: (t.paymentMethod as PaymentMethod) || 'cash',
+//           notes: t.notes,
+//           debtorId: t.contactId,
+//           debtorName: debtor?.contactName || 'Unknown Debtor',
+//           debtorPhone: debtor?.contactPhone,
+//         };
+//       });
 
 //       // Sort by date (newest first)
-//       allPayments.sort((a, b) => b.date - a.date);
-//       setPayments(allPayments);
+//       paymentHistory.sort((a, b) => b.date - a.date);
+//       setPayments(paymentHistory);
 //     } catch (error) {
 //       console.error('Error loading payment history:', error);
 //       showNotification({
@@ -143,10 +163,7 @@
 
 //     // Filter by debtor
 //     if (selectedDebtorId) {
-//       filtered = filtered.filter(p => {
-//         const debtor = debtors.find(d => d.contactId === selectedDebtorId);
-//         return debtor && p.debtorName === debtor.contactName;
-//       });
+//       filtered = filtered.filter(p => p.debtorId === selectedDebtorId);
 //     }
 
 //     // Filter by payment method
@@ -156,26 +173,20 @@
 
 //     // Filter by time range
 //     const now = Date.now();
-//     switch (timeRange) {
-//       case 'week':
-//         filtered = filtered.filter(p => p.date > now - 7 * 24 * 60 * 60 * 1000);
-//         break;
-//       case 'month':
-//         filtered = filtered.filter(p => p.date > now - 30 * 24 * 60 * 60 * 1000);
-//         break;
-//       case 'quarter':
-//         filtered = filtered.filter(p => p.date > now - 90 * 24 * 60 * 60 * 1000);
-//         break;
-//       case 'year':
-//         filtered = filtered.filter(p => p.date > now - 365 * 24 * 60 * 60 * 1000);
-//         break;
-//       case 'all':
-//         // No filter
-//         break;
+//     const ranges = {
+//       week: 7 * 24 * 60 * 60 * 1000,
+//       month: 30 * 24 * 60 * 60 * 1000,
+//       quarter: 90 * 24 * 60 * 60 * 1000,
+//       year: 365 * 24 * 60 * 60 * 1000,
+//       all: Infinity,
+//     };
+
+//     if (timeRange !== 'all') {
+//       filtered = filtered.filter(p => p.date > now - ranges[timeRange]);
 //     }
 
 //     return filtered;
-//   }, [payments, selectedDebtorId, selectedMethod, timeRange, debtors]);
+//   }, [payments, selectedDebtorId, selectedMethod, timeRange]);
 
 //   // Calculate statistics
 //   const stats = useMemo((): PaymentStats => {
@@ -191,19 +202,24 @@
 //     };
 
 //     // Unique debtors
-//     const uniqueDebtorNames = new Set(filteredPayments.map(p => p.debtorName));
+//     const uniqueDebtorIds = new Set(filteredPayments.map(p => p.debtorId));
     
-//     // Average per day (based on time range)
-//     const daysInRange = timeRange === 'week' ? 7 :
-//                        timeRange === 'month' ? 30 :
-//                        timeRange === 'quarter' ? 90 :
-//                        timeRange === 'year' ? 365 : 
-//                        Math.max(1, Math.ceil((Date.now() - (filteredPayments[filteredPayments.length - 1]?.date || Date.now())) / (24 * 60 * 60 * 1000)));
+//     // Days in range
+//     let daysInRange = 1;
+//     if (filteredPayments.length > 0) {
+//       const oldestDate = Math.min(...filteredPayments.map(p => p.date));
+//       const newestDate = Math.max(...filteredPayments.map(p => p.date));
+//       daysInRange = Math.max(1, Math.ceil((newestDate - oldestDate) / (24 * 60 * 60 * 1000)));
+//     }
 
 //     // Find best day
 //     const paymentsByDate = new Map<string, number>();
 //     filteredPayments.forEach(p => {
-//       const date = new Date(p.date).toLocaleDateString();
+//       const date = new Date(p.date).toLocaleDateString('en-US', {
+//         month: 'short',
+//         day: 'numeric',
+//         year: 'numeric'
+//       });
 //       paymentsByDate.set(date, (paymentsByDate.get(date) || 0) + p.amount);
 //     });
     
@@ -216,18 +232,15 @@
 //       }
 //     });
 
-//     // Find best week (simplified)
-//     const bestWeekAmount = Math.max(...Array.from(paymentsByDate.values()));
-
 //     return {
 //       totalPaid,
 //       averagePayment: paymentCount > 0 ? totalPaid / paymentCount : 0,
-//       largestPayment: Math.max(...amounts, 0),
-//       smallestPayment: Math.min(...amounts, Infinity) === Infinity ? 0 : Math.min(...amounts, Infinity),
+//       largestPayment: amounts.length > 0 ? Math.max(...amounts) : 0,
+//       smallestPayment: amounts.length > 0 ? Math.min(...amounts) : 0,
 //       paymentCount,
-//       uniqueDebtors: uniqueDebtorNames.size,
-//       averagePerDay: totalPaid / (daysInRange || 1),
-//       projectedMonthly: (totalPaid / (daysInRange || 1)) * 30,
+//       uniqueDebtors: uniqueDebtorIds.size,
+//       averagePerDay: daysInRange > 0 ? totalPaid / daysInRange : 0,
+//       projectedMonthly: daysInRange > 0 ? (totalPaid / daysInRange) * 30 : 0,
 //       paymentMethods: methods,
 //       bestDay: {
 //         date: bestDayDate,
@@ -235,10 +248,10 @@
 //       },
 //       bestWeek: {
 //         week: 'This period',
-//         amount: bestWeekAmount,
+//         amount: bestDayAmount, // Simplified for now
 //       },
 //     };
-//   }, [filteredPayments, timeRange]);
+//   }, [filteredPayments]);
 
 //   // Prepare chart data for Gifted Charts
 //   const chartData = useMemo(() => {
@@ -274,10 +287,10 @@
 //     const lineData = sortedEntries.map(([label, data]) => ({
 //       value: data.amount,
 //       label,
-//       dataPointText: `${data.count} payment${data.count > 1 ? 's' : ''}\n${formatCurrency(data.amount)}`,
+//       dataPointText: `${data.count} payment${data.count > 1 ? 's' : ''}`,
 //     }));
 
-//     // Bar chart data
+//     // Bar chart data (payment methods)
 //     const barData = [
 //       {
 //         value: stats.paymentMethods.cash,
@@ -402,7 +415,7 @@
 
 //   // Gifted Charts theme
 //   const chartTheme = {
-//     backgroundColor: isDark ? '#1e293b' : '#ffffff',
+//     backgroundColor: 'transparent',
 //     color: isDark ? '#f1f5f9' : '#0f172a',
 //     labelColor: isDark ? '#94a3b8' : '#64748b',
 //     gridColor: isDark ? '#334155' : '#e2e8f0',
@@ -423,7 +436,14 @@
 //         <PremiumHeader
 //           title="Payment History"
 //           showBackButton
-          
+//           action={
+//             <TouchableOpacity
+//               onPress={() => setShowFilterDialog(true)}
+//               className="w-10 h-10 rounded-xl bg-surface-soft items-center justify-center active:opacity-70 border border-border"
+//             >
+//               <Ionicons name="options-outline" size={20} color={isDark ? '#94a3b8' : '#64748b'} />
+//             </TouchableOpacity>
+//           }
 //         />
 //       </Animated.View>
 
@@ -524,7 +544,7 @@
 //                   className={`px-4 py-2 rounded-full ${
 //                     timeRange === range
 //                       ? 'bg-brand'
-//                       : 'bg-surface dark:bg-dark-surface border border-border dark:border-dark-border'
+//                       : 'bg-white dark:bg-dark-surface border border-border dark:border-dark-border'
 //                   }`}
 //                 >
 //                   <ThemedText
@@ -543,7 +563,7 @@
 //             <ThemedText variant="heading" size="base" className="font-semibold">
 //               Payment Trends
 //             </ThemedText>
-//             <View className="flex-row bg-surface dark:bg-dark-surface rounded-lg p-1">
+//             <View className="flex-row bg-white dark:bg-dark-surface rounded-lg p-1 border border-border dark:border-dark-border">
 //               <TouchableOpacity
 //                 onPress={() => setChartType('line')}
 //                 className={`px-3 py-2 rounded-l-lg ${
@@ -606,32 +626,18 @@
 //                       color="#0ea5e9"
 //                       thickness={3}
 //                       dataPointsColor1="#0ea5e9"
-//                       dataPointsRadius={6}
-//                       dataPointsWidth={6}
+//                       dataPointsRadius={4}
 //                       textColor={chartTheme.labelColor}
 //                       textFontSize={10}
 //                       xAxisLabelTextStyle={{ color: chartTheme.labelColor }}
 //                       yAxisTextStyle={{ color: chartTheme.labelColor }}
 //                       yAxisColor={chartTheme.gridColor}
 //                       xAxisColor={chartTheme.gridColor}
-//                       backgroundColor={chartTheme.backgroundColor}
+//                       backgroundColor="transparent"
 //                       hideRules={false}
 //                       rulesColor={chartTheme.gridColor}
 //                       rulesType="solid"
-//                       showValuesAsDataPointsText
-//                       dataPointsHeight={30}
-//                       dataPointsWidth={30}
-//                       dataPointsShape="circle"
-//                       focusedDataPointShape="circle"
-//                       focusedDataPointWidth={10}
-//                       focusedDataPointHeight={10}
-//                       focusedDataPointColor="#0ea5e9"
-//                       showDataPointOnFocus
-//                       showTextOnFocus
-//                       focusEnabled
-//                       onFocus={(item) => {
-//                         console.log('Focused:', item);
-//                       }}
+//                       showValuesAsDataPointsText={false}
 //                       hideDataPoints={false}
 //                       spacing={45}
 //                       initialSpacing={20}
@@ -640,9 +646,15 @@
 //                         pointerStripHeight: 160,
 //                         pointerStripColor: isDark ? '#475569' : '#cbd5e1',
 //                         pointerStripWidth: 2,
-//                         pointerComponent: (item: any) => {
+//                         pointerColor: '#0ea5e9',
+//                         radius: 6,
+//                         pointerLabelWidth: 100,
+//                         pointerLabelHeight: 80,
+//                         autoAdjustPointerLabelPosition: true,
+//                         pointerLabelComponent: (items: any[]) => {
+//                           const item = items[0];
 //                           return (
-//                             <View className="bg-surface dark:bg-dark-surface px-3 py-2 rounded-lg shadow-elevated border border-border dark:border-dark-border">
+//                             <View className="bg-white dark:bg-dark-surface px-3 py-2 rounded-lg shadow-elevated border border-border dark:border-dark-border">
 //                               <ThemedText variant="default" size="sm" className="font-medium">
 //                                 {item.value ? formatCurrency(item.value) : ''}
 //                               </ThemedText>
@@ -673,7 +685,7 @@
 //                       yAxisTextStyle={{ color: chartTheme.labelColor }}
 //                       xAxisLabelTextStyle={{ color: chartTheme.labelColor }}
 //                       noOfSections={4}
-//                       maxValue={Math.max(...chartData.barData.map(b => b.value)) * 1.1}
+//                       maxValue={Math.max(...chartData.barData.map(b => b.value), 1) * 1.1}
 //                       barBorderRadius={8}
 //                       showGradient
 //                       gradientColor="rgba(255,255,255,0.2)"
@@ -683,13 +695,6 @@
 //                         setSelectedBarIndex(index);
 //                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 //                       }}
-//                       renderTooltip={(item: any) => (
-//                         <View className="bg-surface dark:bg-dark-surface px-3 py-2 rounded-lg shadow-elevated">
-//                           <ThemedText variant="default" size="sm" className="font-medium">
-//                             {item.label}: {formatCurrency(item.value)}
-//                           </ThemedText>
-//                         </View>
-//                       )}
 //                     />
 //                   )}
 
@@ -762,7 +767,7 @@
 //                   className={`px-4 py-2 rounded-full ${
 //                     !selectedDebtorId
 //                       ? 'bg-brand'
-//                       : 'bg-surface dark:bg-dark-surface border border-border dark:border-dark-border'
+//                       : 'bg-white dark:bg-dark-surface border border-border dark:border-dark-border'
 //                   }`}
 //                 >
 //                   <ThemedText size="sm" className={!selectedDebtorId ? 'text-white' : ''}>
@@ -777,7 +782,7 @@
 //                     className={`px-4 py-2 rounded-full ${
 //                       selectedDebtorId === debtor.contactId
 //                         ? 'bg-brand'
-//                         : 'bg-surface dark:bg-dark-surface border border-border dark:border-dark-border'
+//                         : 'bg-white dark:bg-dark-surface border border-border dark:border-dark-border'
 //                     }`}
 //                   >
 //                     <ThemedText 
@@ -799,9 +804,15 @@
 //               <ThemedText variant="heading" size="base" className="font-semibold">
 //                 Payment Transactions
 //               </ThemedText>
-//               <ThemedText variant="muted" size="sm">
-//                 {filteredPayments.length} payments
-//               </ThemedText>
+//               <TouchableOpacity
+//                 onPress={() => setShowExportDialog(true)}
+//                 className="flex-row items-center"
+//               >
+//                 <Ionicons name="download-outline" size={18} color="#0ea5e9" />
+//                 <ThemedText variant="brand" size="sm" className="ml-1">
+//                   Export
+//                 </ThemedText>
+//               </TouchableOpacity>
 //             </View>
 
 //             {filteredPayments.length === 0 ? (
@@ -811,77 +822,73 @@
 //                 description="No payment records match your filters"
 //               />
 //             ) : (
-//               filteredPayments.slice(0, 20).map((payment, index) => {
-//                 const debtor = debtors.find(d => d.contactName === payment.debtorName);
-                
-//                 return (
-//                   <TouchableOpacity
-//                     key={payment.id}
-//                     onPress={() => {
-//                       setSelectedPayment(payment);
-//                       setSelectedDebtor(debtor || null);
-//                       setShowPaymentDetailDialog(true);
-//                     }}
-//                     activeOpacity={0.7}
-//                   >
-//                     <Card variant="filled" className="mb-2">
-//                       <CardContent className="p-4">
-//                         <View className="flex-row items-center justify-between">
-//                           <View className="flex-1">
-//                             <View className="flex-row items-center gap-2 mb-1">
-//                               <View className={`w-2 h-2 rounded-full ${
-//                                 payment.method === 'cash' ? 'bg-success' :
-//                                 payment.method === 'bank' ? 'bg-info' :
-//                                 'bg-warning'
-//                               }`} />
-//                               <ThemedText variant="default" size="base" className="font-semibold">
-//                                 {payment?.debtorName}
-//                               </ThemedText>
-//                             </View>
-                            
-//                             <ThemedText variant="muted" size="sm">
-//                               {formatDate(payment.date)}
+//               filteredPayments.slice(0, 20).map((payment, index) => (
+//                 <TouchableOpacity
+//                   key={payment.id}
+//                   onPress={() => {
+//                     setSelectedPayment(payment);
+//                     const debtor = debtors.find(d => d.contactId === payment.debtorId);
+//                     setSelectedDebtor(debtor || null);
+//                     setShowPaymentDetailDialog(true);
+//                   }}
+//                   activeOpacity={0.7}
+//                 >
+//                   <Card variant="filled" className="mb-2">
+//                     <CardContent className="p-4">
+//                       <View className="flex-row items-center justify-between">
+//                         <View className="flex-1">
+//                           <View className="flex-row items-center gap-2 mb-1">
+//                             <View className={`w-2 h-2 rounded-full ${
+//                               payment.method === 'cash' ? 'bg-success' :
+//                               payment.method === 'bank' ? 'bg-info' :
+//                               'bg-warning'
+//                             }`} />
+//                             <ThemedText variant="default" size="base" className="font-semibold">
+//                               {payment.debtorName}
 //                             </ThemedText>
-                            
-//                             {payment.notes && (
-//                               <ThemedText variant="muted" size="xs" className="mt-1">
-//                                 {payment.notes}
-//                               </ThemedText>
-//                             )}
 //                           </View>
-
-//                           <View className="items-end">
-//                             <ThemedText variant="heading" size="lg" className="font-bold text-success">
-//                               {formatCurrency(payment.amount)}
+                          
+//                           <ThemedText variant="muted" size="sm">
+//                             {formatDate(payment.date)}
+//                           </ThemedText>
+                          
+//                           {payment.notes && (
+//                             <ThemedText variant="muted" size="xs" className="mt-1">
+//                               {payment.notes.length > 30 ? payment.notes.slice(0, 30) + '...' : payment.notes}
 //                             </ThemedText>
-//                             <View className="flex-row items-center mt-1">
-//                               <Ionicons 
-//                                 name={
-//                                   payment.method === 'cash' ? 'cash-outline' :
-//                                   payment.method === 'bank' ? 'business-outline' :
-//                                   'phone-portrait-outline'
-//                                 } 
-//                                 size={14} 
-//                                 color={isDark ? '#94a3b8' : '#64748b'} 
-//                               />
-//                               <ThemedText variant="muted" size="xs" className="ml-1 capitalize">
-//                                 {payment.method}
-//                               </ThemedText>
-//                             </View>
+//                           )}
+//                         </View>
+
+//                         <View className="items-end">
+//                           <ThemedText variant="heading" size="lg" className="font-bold text-success">
+//                             {formatCurrency(payment.amount)}
+//                           </ThemedText>
+//                           <View className="flex-row items-center mt-1">
+//                             <Ionicons 
+//                               name={
+//                                 payment.method === 'cash' ? 'cash-outline' :
+//                                 payment.method === 'bank' ? 'business-outline' :
+//                                 'phone-portrait-outline'
+//                               } 
+//                               size={14} 
+//                               color={isDark ? '#94a3b8' : '#64748b'} 
+//                             />
+//                             <ThemedText variant="muted" size="xs" className="ml-1 capitalize">
+//                               {payment.method}
+//                             </ThemedText>
 //                           </View>
 //                         </View>
-//                       </CardContent>
-//                     </Card>
-//                   </TouchableOpacity>
-//                 );
-//               })
+//                       </View>
+//                     </CardContent>
+//                   </Card>
+//                 </TouchableOpacity>
+//               ))
 //             )}
 
 //             {filteredPayments.length > 20 && (
 //               <TouchableOpacity 
-//                 className="mt-2 p-3 bg-surface dark:bg-dark-surface rounded-lg items-center"
+//                 className="mt-2 p-3 bg-white dark:bg-dark-surface rounded-lg items-center border border-border dark:border-dark-border"
 //                 onPress={() => {
-//                   // Navigate to full payment list
 //                   showNotification({
 //                     type: 'info',
 //                     title: 'View All',
@@ -898,7 +905,7 @@
 //         </View>
 //       </ScrollView>
 
-//       {/* Payment Detail Dialog (same as before) */}
+//       {/* Payment Detail Dialog */}
 //       <CustomDialog
 //         visible={showPaymentDetailDialog}
 //         title="Payment Details"
@@ -930,15 +937,15 @@
 //               <View className="flex-row items-center mb-2">
 //                 <View className="w-10 h-10 rounded-full bg-brand-soft items-center justify-center mr-3">
 //                   <ThemedText variant="heading" size="lg" className="text-brand">
-//                     {selectedPayment?.debtorName?.charAt(0).toUpperCase()}
+//                     {selectedPayment.debtorName?.charAt(0).toUpperCase()}
 //                   </ThemedText>
 //                 </View>
 //                 <View>
 //                   <ThemedText variant="heading" size="base" className="font-bold">
-//                     {selectedPayment?.debtorName}
+//                     {selectedPayment.debtorName}
 //                   </ThemedText>
 //                   <ThemedText variant="muted" size="sm">
-//                     {selectedPayment?.debtorPhone}
+//                     {selectedPayment.debtorPhone}
 //                   </ThemedText>
 //                 </View>
 //               </View>
@@ -1019,7 +1026,7 @@
 //         )}
 //       </CustomDialog>
 
-//       {/* Filter Dialog (same as before) */}
+//       {/* Filter Dialog */}
 //       <CustomDialog
 //         visible={showFilterDialog}
 //         title="Filter Payments"
@@ -1111,7 +1118,7 @@
 //         </View>
 //       </CustomDialog>
 
-//       {/* Export Dialog (same as before) */}
+//       {/* Export Dialog */}
 //       <CustomDialog
 //         visible={showExportDialog}
 //         title="Export Payment History"

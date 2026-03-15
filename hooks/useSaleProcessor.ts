@@ -187,6 +187,7 @@ export function useSaleProcessor({
         if (cashAccountId) {
           const payment = await database.get<Payment>('payments').create(p => {
             p.transactionId = newTransaction.id;
+            p.referenceNumber= `REF-${newTransaction.id}`
             p.shopId = currentShop.id;
             p.paymentMethodId = 'cash';
             p.cashAccountId = cashAccountId;

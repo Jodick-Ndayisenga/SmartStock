@@ -177,7 +177,7 @@ export function BaseWidget<T>({
   // Success state
   return (
     <Card variant="elevated" className={className}>
-      <CardContent className="p-4">
+      <CardContent className="p-0">
         <View className="flex-row justify-between items-center mb-4">
           <ThemedText variant="heading" size="base" className="font-semibold">
             {title}

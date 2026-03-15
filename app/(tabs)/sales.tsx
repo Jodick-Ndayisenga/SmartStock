@@ -15,10 +15,8 @@ import { withObservables } from '@nozbe/watermelondb/react';
 import { Q } from '@nozbe/watermelondb';
 import NetInfo from '@react-native-community/netinfo';
 import { Ionicons } from '@expo/vector-icons';
-
 // Database
 import database from '@/database';
-
 // Components
 import PremiumHeader from '@/components/layout/PremiumHeader';
 import { Button } from '@/components/ui/Button';
@@ -46,7 +44,7 @@ import { Contact } from '@/database/models/Contact';
 import { Product } from '@/database/models/Product';
 
 // Types
-import { PaymentMode, ViewMode, StockStatus } from '@/types/sales';
+import { ViewMode, StockStatus } from '@/types/sales';
 
 
 interface SalesScreenProps {
@@ -60,7 +58,6 @@ function SalesScreen({ products, customers }: SalesScreenProps) {
   const { t } = useTranslation();
   const { colorScheme } = useColorScheme();
   const { currentShop, user, tempSelectedContact, setTempSelectedContact } = useAuth();
-  
   // State
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -146,7 +143,6 @@ function SalesScreen({ products, customers }: SalesScreenProps) {
 
   // Derived values
   const productIdFromParams = params.productId as string;
-  
   const filteredProducts = useMemo(() => {
     if (!products.length) return [];
     
@@ -167,7 +163,7 @@ function SalesScreen({ products, customers }: SalesScreenProps) {
     [products]
   );
 
-  const getProductStockStatus = useCallback((product: Product): StockStatus => {
+ const getProductStockStatus = useCallback((product: Product): StockStatus => {
     const stock = product.stockQuantity || 0;
     if (stock <= 0) return 'out-of-stock';
     if (stock <= product.lowStockThreshold) return 'low-stock';
@@ -229,7 +225,7 @@ function SalesScreen({ products, customers }: SalesScreenProps) {
       for (const sale of sales) {
         // Process each queued sale
         // You'll need to implement this based on your business logic
-        console.log('Processing queued sale:', sale);
+        console.log('Processing queued sale: ', sale);
       }
     } catch (error) {
       console.error('Error processing queued sales:', error);
@@ -385,7 +381,6 @@ function SalesScreen({ products, customers }: SalesScreenProps) {
           selectedDate={dueDate}
           isDark={colorScheme === 'dark'}
         />
-
         <CustomDialog
           visible={!!successDialogData}
           title={successDialogData?.title || ''}

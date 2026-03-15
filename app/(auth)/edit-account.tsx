@@ -171,6 +171,7 @@ export default function EditAccountScreen() {
   const scrollViewRef = useRef<ScrollView>(null);
 
   // Check if this is a system account
+  console.log(account?.type)
   const isSystemAccount = account?.type === 'receivable' || account?.name === 'Accounts Receivable';
 
   // Fetch account data

@@ -196,31 +196,15 @@ const RevenueDistributionWidgetInner = ({
   }
 
   return (
-    <View className="p-4">
-      {/* Total Revenue Card */}
-      <Card variant="filled" className="mb-6">
-        <CardContent className="p-4">
-          <View className="flex-row justify-between items-center">
-            <View>
-              <ThemedText variant="muted" size="xs">Total Revenue</ThemedText>
-              <ThemedText variant="heading" size="xl" className="font-bold text-brand">
-                {formatCurrency(data.total)}
-              </ThemedText>
-            </View>
-            <View className={`w-12 h-12 rounded-full ${isDark ? 'bg-dark-brand-soft' : 'bg-brand-soft'} items-center justify-center`}>
-              <Ionicons name="stats-chart" size={24} color={colors.brand} />
-            </View>
-          </View>
-        </CardContent>
-      </Card>
+    <View className="p-0">
 
       {/* Beautiful 3D Donut Chart */}
-      <Card variant="elevated" className="mb-6 overflow-hidden">
-        <CardContent className="p-4 items-center">
+      <Card variant="elevated" className="overflow-hidden">
+        <CardContent className="p-0 items-center">
           <View style={{ 
             backgroundColor: isDark ? '#0f172a' : '#ffffff',
             borderRadius: 200,
-            padding: 8,
+            padding: 2,
             shadowColor: '#000',
             shadowOffset: { width: 0, height: 4 },
             shadowOpacity: isDark ? 0.5 : 0.1,
@@ -235,7 +219,7 @@ const RevenueDistributionWidgetInner = ({
               textColor={colors.text}
               textSize={14}
               //fontFamily="Inter-Medium"
-              radius={130}
+              radius={150}
               innerRadius={70}
               innerCircleColor={colors.surface}
               innerCircleBorderWidth={3}
@@ -299,7 +283,7 @@ const RevenueDistributionWidgetInner = ({
           
           return (
             <Card key={index} variant="filled" className="flex-1 min-w-[48%]">
-              <CardContent className="p-3">
+              <CardContent className="p-0">
                 <View className="flex-row items-center justify-between mb-2">
                   <View className="flex-row items-center">
                     <View 
@@ -320,7 +304,7 @@ const RevenueDistributionWidgetInner = ({
                     </ThemedText>
                   </View>
                 </View>
-                <ThemedText variant="subheading" size="base" className="font-bold ml-10">
+                <ThemedText variant="label" size="base" className="font-bold ml-10">
                   {formatCurrency(item.value)}
                 </ThemedText>
               </CardContent>

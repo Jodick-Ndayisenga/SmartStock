@@ -124,7 +124,7 @@ const StockHealthWidgetInner = ({
         healthy={data.healthy}
         lowStock={data.lowStock}
         outOfStock={data.outOfStock}
-        formatValue={(value) => value.toString()}
+        formatValue={(value:number) => value.toString()}
       />
 
       {/* Legend with counts */}

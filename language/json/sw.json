@@ -25,7 +25,8 @@
     "sunday": "Jumapili",
     "getStarted": "Anza",
     "creating": "Kuunda...",
-    "customer": "Mteja"
+    "customer": "Mteja",
+    "login": "Ingia"
   },
   "auth": {
     "welcome": "Karibu",

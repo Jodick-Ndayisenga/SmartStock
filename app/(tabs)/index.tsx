@@ -407,7 +407,7 @@ export default function DashboardScreen() {
     <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
       <Animated.View style={{ opacity: headerOpacity }}>
         <PremiumHeader
-          title="Dashboard"
+          title="HOME DASHBOARD"
           showBackButton={false}
         />
       </Animated.View>
@@ -511,7 +511,7 @@ export default function DashboardScreen() {
           </View>
 
           {/* Additional spacing for bottom navigation - increased for better scroll experience */}
-          <View className="h-24" />
+          <View className="h-2" />
         </View>
       </Animated.ScrollView>
     </View>

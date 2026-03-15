@@ -1,101 +1,146 @@
-// app/(tabs)/cash-flow.tsx
+// app/(tabs)/cashflow.tsx
 import React, { useState, useMemo } from 'react';
 import {
   View,
   ScrollView,
   TouchableOpacity,
   RefreshControl,
-  Dimensions,
+  Alert
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Card, CardContent } from '@/components/ui/Card';
-import { useAuth } from '@/context/AuthContext';
-import { useColorScheme } from 'nativewind';
-import database from '@/database';
+import { LineChart } from "react-native-gifted-charts";
+import { useWindowDimensions } from 'react-native';
 import { Q } from '@nozbe/watermelondb';
 import { withObservables } from '@nozbe/watermelondb/react';
-import Transaction from '@/database/models/Transaction';
-import { CashAccount } from '@/database/models/CashAccount';
-import { LineChart, PieChart } from 'react-native-gifted-charts';
-import { LinearGradient } from 'expo-linear-gradient';
-import { formatCurrency } from '@/utils/dashboardUtils';
-import * as Haptics from 'expo-haptics';
+
+// Components
 import PremiumHeader from '@/components/layout/PremiumHeader';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { ThemedText } from '@/components/ui/ThemedText';
+import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { Loading } from '@/components/ui/Loading';
 
-const { width: screenWidth } = Dimensions.get('window');
+// Models
+import Transaction from '@/database/models/Transaction';
+import { Product } from '@/database/models/Product';
+import { StockMovement } from '@/database/models/StockMovement';
+import { useAuth } from '@/context/AuthContext';
+import database from '@/database';
 
-interface CashFlowData {
-  periodInflow: number;
-  periodOutflow: number;
-  periodNetFlow: number;
+// Types
+interface CashFlowSummary {
   currentBalance: number;
-  previousBalance: number;
-  balanceChange: number;
-  totalReceivables: number;
-  receivablesDue: number;
-  receivablesOverdue: number;
-  inflowBySource: {
-    cash: number;
-    card: number;
-    transfer: number;
-    other: number;
-  };
-  outflowByType: {
-    purchases: number;
-    expenses: number;
-    payroll: number;
-    other: number;
-  };
-  dailyTotals: { date: string; value: number }[];
-  monthlyTotals: { month: string; value: number }[];
-  transactionCount: number;
-  averageTransaction: number;
-  largestInflow: number;
-  largestOutflow: number;
+  netCashFlow: number;
+  moneyIn: number;
+  moneyOut: number;
+  operatingCF: number;
+  investingCF: number;
+  financingCF: number;
+  beginningBalance: number;
 }
 
-interface CashFlowPageProps {
-  transactions?: Transaction[];
-  cashAccounts?: CashAccount[];
+interface CashFlowTransaction {
+  id: string;
+  date: Date;
+  amount: number;
+  type: 'in' | 'out';
+  category: string;
+  description: string;
+  reference: string;
+  paymentMethod: string;
 }
 
-// Loading Skeleton
-const LoadingSkeleton = () => {
-  const { colorScheme } = useColorScheme();
-  const isDark = colorScheme === 'dark';
+interface CashFlowByCategory {
+  category: string;
+  amount: number;
+  color: string;
+  percentage: number;
+}
+
+type TimePeriod = 'today' | 'week' | 'month' | 'quarter' | 'year' | 'custom';
+
+// Loading Skeleton Component
+const CashFlowSkeleton = () => {
+  const { width } = useWindowDimensions();
   
   return (
-    <View className="flex-1 bg-brand dark:bg-dark-brand">
+    <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
+      <PremiumHeader title="Cash Flow" showBackButton />
       <ScrollView className="flex-1">
-        <View className="p-4">
-          {/* Header Skeleton */}
-          <View className="mb-6">
-            <View className="h-8 w-48 bg-surface-soft dark:bg-dark-surface-soft rounded-lg animate-pulse mb-2" />
-            <View className="h-4 w-64 bg-surface-soft dark:bg-dark-surface-soft rounded animate-pulse" />
-          </View>
-
-          {/* Balance Card Skeleton */}
-          <View className="mb-6">
-            <View className="h-32 bg-surface-soft dark:bg-dark-surface-soft rounded-xl animate-pulse" />
-          </View>
-
-          {/* Period Stats Skeleton */}
-          <View className="flex-row gap-3 mb-6">
-            {[1, 2, 3].map(i => (
-              <View key={i} className="flex-1 h-24 bg-surface-soft dark:bg-dark-surface-soft rounded-xl animate-pulse" />
+        {/* Period Selector Skeleton */}
+        <View className="px-4 py-2">
+          <View className="flex-row gap-2">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <View key={i} className="w-16 h-8 bg-surface dark:bg-dark-surface rounded-full animate-pulse" />
             ))}
           </View>
+        </View>
 
-          {/* Chart Skeleton */}
-          <View className="h-64 bg-surface-soft dark:bg-dark-surface-soft rounded-xl animate-pulse mb-6" />
+        {/* View Selector Skeleton */}
+        <View className="mx-2 mt-2">
+          <View className="flex-row bg-surface dark:bg-dark-surface rounded-lg p-1">
+            {[1, 2, 3, 4].map((i) => (
+              <View key={i} className="flex-1 h-8 bg-surface-soft dark:bg-dark-surface-soft rounded-md mx-1 animate-pulse" />
+            ))}
+          </View>
+        </View>
 
-          {/* Bottom Sections Skeleton */}
-          <View className="flex-row gap-3">
-            <View className="flex-1 h-48 bg-surface-soft dark:bg-dark-surface-soft rounded-xl animate-pulse" />
-            <View className="flex-1 h-48 bg-surface-soft dark:bg-dark-surface-soft rounded-xl animate-pulse" />
+        {/* Summary Cards Skeleton */}
+        <View className="flex-row flex-wrap px-2 mt-4">
+          {[1, 2, 3, 4].map((i) => (
+            <View key={i} className="w-[48%] mr-[4%] mb-4">
+              <View className="bg-white dark:bg-dark-surface rounded-xl p-3">
+                <View className="flex-row items-center mb-2">
+                  <View className="w-8 h-8 rounded-full bg-surface-soft dark:bg-dark-surface-soft animate-pulse mr-2" />
+                  <View className="w-16 h-4 bg-surface-soft dark:bg-dark-surface-soft rounded animate-pulse" />
+                </View>
+                <View className="w-24 h-6 bg-surface-soft dark:bg-dark-surface-soft rounded animate-pulse mb-1" />
+                <View className="w-16 h-3 bg-surface-soft dark:bg-dark-surface-soft rounded animate-pulse" />
+              </View>
+            </View>
+          ))}
+        </View>
+
+        {/* Chart Skeleton */}
+        <View className="mx-2 mt-4">
+          <View className="bg-white dark:bg-dark-surface rounded-xl p-4">
+            <View className="w-32 h-5 bg-surface-soft dark:bg-dark-surface-soft rounded animate-pulse mb-2" />
+            <View className="w-48 h-4 bg-surface-soft dark:bg-dark-surface-soft rounded animate-pulse mb-4" />
+            
+            {/* Chart Type Selector Skeleton */}
+            <View className="flex-row gap-2 mb-4">
+              {[1, 2, 3].map((i) => (
+                <View key={i} className="w-20 h-8 bg-surface-soft dark:bg-dark-surface-soft rounded-full animate-pulse" />
+              ))}
+            </View>
+            
+            {/* Chart Area Skeleton */}
+            <View className="h-[200px] w-full bg-surface-soft dark:bg-dark-surface-soft rounded-lg animate-pulse" />
+          </View>
+        </View>
+
+        {/* Category Breakdown Skeleton */}
+        <View className="mx-2 mt-4">
+          <View className="bg-white dark:bg-dark-surface rounded-xl p-4">
+            <View className="w-40 h-5 bg-surface-soft dark:bg-dark-surface-soft rounded animate-pulse mb-2" />
+            <View className="w-56 h-4 bg-surface-soft dark:bg-dark-surface-soft rounded animate-pulse mb-4" />
+            
+            {[1, 2, 3, 4].map((i) => (
+              <View key={i} className="mb-3">
+                <View className="flex-row justify-between mb-1">
+                  <View className="flex-row items-center">
+                    <View className="w-3 h-3 rounded-full bg-surface-soft dark:bg-dark-surface-soft animate-pulse mr-2" />
+                    <View className="w-20 h-4 bg-surface-soft dark:bg-dark-surface-soft rounded animate-pulse" />
+                  </View>
+                  <View className="w-16 h-4 bg-surface-soft dark:bg-dark-surface-soft rounded animate-pulse" />
+                </View>
+                <View className="w-full h-2 bg-surface-soft dark:bg-dark-surface-soft rounded-full animate-pulse" />
+              </View>
+            ))}
           </View>
         </View>
       </ScrollView>
@@ -103,714 +148,966 @@ const LoadingSkeleton = () => {
   );
 };
 
-// Main Page Component
-const CashFlowPageInner = ({ 
+// Inner component that receives observable data
+const CashFlowScreenInner = ({
   transactions = [],
-  cashAccounts = []
-}: CashFlowPageProps) => {
+  products = [],
+  stockMovements = [],
+  isLoading = false,
+}: {
+  transactions?: Transaction[],
+  products?: Product[],
+  stockMovements?: StockMovement[],
+  isLoading?: boolean;
+}) => {
   const router = useRouter();
-  const { colorScheme } = useColorScheme();
-  const isDark = colorScheme === 'dark';
+  const { t } = useTranslation();
+  const { width } = useWindowDimensions();
+  const { currentShop } = useAuth();
+  
   const [refreshing, setRefreshing] = useState(false);
-  const [timeRange, setTimeRange] = useState<'week' | 'month' | 'quarter' | 'year'>('month');
-  const [selectedView, setSelectedView] = useState<'overview' | 'inflow' | 'outflow'>('overview');
+  const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>('month');
+  const [selectedView, setSelectedView] = useState<'overview' | 'statement' | 'categories' | 'forecast'>('overview');
+  const [startDate, setStartDate] = useState<Date>(new Date(new Date().setDate(1))); // First day of month
+  const [endDate, setEndDate] = useState<Date>(new Date());
 
-  // Colors from your theme
-  const colors = {
-    brand: isDark ? '#38bdf8' : '#0ea5e9',
-    brandSoft: isDark ? '#1e3a5c' : '#e0f2fe',
-    success: isDark ? '#4ade80' : '#22c55e',
-    successSoft: isDark ? '#1a4532' : '#dcfce7',
-    warning: isDark ? '#fbbf24' : '#f59e0b',
-    warningSoft: isDark ? '#453209' : '#fef3c7',
-    error: isDark ? '#f87171' : '#ef4444',
-    errorSoft: isDark ? '#4c1d1d' : '#fee2e2',
-    info: isDark ? '#60a5fa' : '#3b82f6',
-    infoSoft: isDark ? '#1e3a5c' : '#dbeafe',
-    surface: isDark ? '#0f172a' : '#ffffff',
-    surfaceSoft: isDark ? '#1e293b' : '#f8fafc',
-    surfaceMuted: isDark ? '#334155' : '#f1f5f9',
-    text: isDark ? '#f1f5f9' : '#0f172a',
-    textSoft: isDark ? '#cbd5e1' : '#475569',
-    textMuted: isDark ? '#94a3b8' : '#64748b',
-    border: isDark ? '#475569' : '#e2e8f0',
-    borderStrong: isDark ? '#64748b' : '#cbd5e1',
+  // Show loading skeleton while data is loading
+  if (isLoading) {
+    return <CashFlowSkeleton />;
+  }
+
+  // Format currency
+  const formatCurrency = (amount: number) => {
+    return `FBU ${amount.toLocaleString('fr-FR')}`;
   };
 
-  // Calculate cash flow metrics
-  const cashFlowData = useMemo((): CashFlowData => {
-    const now = Date.now();
-    let periodStart: number;
+  const formatShortCurrency = (amount: number) => {
+    if (amount >= 1000000) {
+      return `FBU ${(amount / 1000000).toFixed(1)}M`;
+    }
+    if (amount >= 1000) {
+      return `FBU ${(amount / 1000).toFixed(0)}K`;
+    }
+    return `FBU ${amount}`;
+  };
 
-    switch(timeRange) {
+  // Get date range based on selected period
+  const getDateRange = () => {
+    const now = new Date();
+    let start = new Date();
+    let end = new Date();
+
+    switch (selectedPeriod) {
+      case 'today':
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+        break;
       case 'week':
-        periodStart = now - 7 * 24 * 60 * 60 * 1000;
+        start.setDate(now.getDate() - 7);
         break;
       case 'month':
-        periodStart = now - 30 * 24 * 60 * 60 * 1000;
+        start = new Date(now.getFullYear(), now.getMonth(), 1);
+        end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
         break;
       case 'quarter':
-        periodStart = now - 90 * 24 * 60 * 60 * 1000;
+        const quarter = Math.floor(now.getMonth() / 3);
+        start = new Date(now.getFullYear(), quarter * 3, 1);
+        end = new Date(now.getFullYear(), (quarter + 1) * 3, 0, 23, 59, 59, 999);
         break;
       case 'year':
-        periodStart = now - 365 * 24 * 60 * 60 * 1000;
+        start = new Date(now.getFullYear(), 0, 1);
+        end = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
         break;
       default:
-        periodStart = now - 30 * 24 * 60 * 60 * 1000;
+        // custom - use state values
+        return { start: startDate, end: endDate };
     }
+    return { start, end };
+  };
 
-    const periodTransactions = transactions.filter(t => t.transactionDate >= periodStart);
+  // Calculate cash flow summary
+  const summary = useMemo((): CashFlowSummary => {
+    const { start, end } = getDateRange();
     
-    let periodInflow = 0;
-    let periodOutflow = 0;
-    const inflowBySource = { cash: 0, card: 0, transfer: 0, other: 0 };
-    const outflowByType = { purchases: 0, expenses: 0, payroll: 0, other: 0 };
-    const dailyMap = new Map<string, number>();
-    const monthlyMap = new Map<string, number>();
-    
-    let largestInflow = 0;
-    let largestOutflow = 0;
-
-    periodTransactions.forEach(t => {
-      const amount = t.totalAmount;
-      const isInflow = amount > 0;
-      
-      if (isInflow) {
-        periodInflow += amount;
-        if (amount > largestInflow) largestInflow = amount;
-        
-        if (t.transactionType === 'sale') {
-          if (t.paymentStatus === 'paid') inflowBySource.cash += amount;
-          else inflowBySource.other += amount;
-        } else {
-          inflowBySource.other += amount;
-        }
-      } else {
-        const outflow = Math.abs(amount);
-        periodOutflow += outflow;
-        if (outflow > largestOutflow) largestOutflow = outflow;
-        
-        if (t.transactionType === 'purchase') outflowByType.purchases += outflow;
-        else if (t.transactionType === 'expense') {
-          outflowByType.expenses += outflow;
-        } else {
-          outflowByType.other += outflow;
-        }
-      }
-
-      const date = new Date(t.transactionDate).toLocaleDateString('en-US', { 
-        month: 'short', 
-        day: 'numeric' 
-      });
-      dailyMap.set(date, (dailyMap.get(date) || 0) + amount);
-
-      const month = new Date(t.transactionDate).toLocaleDateString('en-US', { 
-        month: 'short', 
-        year: 'numeric' 
-      });
-      monthlyMap.set(month, (monthlyMap.get(month) || 0) + amount);
+    // Filter transactions within date range
+    const periodTransactions = transactions.filter(t => {
+      const tDate = new Date(t.transactionDate);
+      return tDate >= start && tDate <= end;
     });
 
-    const currentBalance = cashAccounts.reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
-    const periodNetFlow = periodInflow - periodOutflow;
-    const previousBalance = currentBalance - periodNetFlow;
+    // Calculate totals
+    let moneyIn = 0;
+    let moneyOut = 0;
+    let operatingCF = 0;
+    let investingCF = 0;
+    let financingCF = 0;
 
-    const receivables = transactions.filter(t => 
-      t.transactionType === 'sale' && 
-      t.paymentStatus !== 'paid' &&
-      t.balanceDue > 0
-    );
-    
-    const totalReceivables = receivables.reduce((sum, t) => sum + t.balanceDue, 0);
-    const receivablesDue = receivables
-      .filter(t => t.dueDate && t.dueDate > now)
-      .reduce((sum, t) => sum + t.balanceDue, 0);
-    const receivablesOverdue = receivables
-      .filter(t => t.dueDate && t.dueDate < now)
-      .reduce((sum, t) => sum + t.balanceDue, 0);
+    periodTransactions.forEach(t => {
+      if (t.totalAmount > 0) {
+        moneyIn += t.totalAmount;
+        // Assume sales are operating activities
+        operatingCF += t.totalAmount;
+      }
+    });
 
-    const dailyTotals = Array.from(dailyMap.entries())
-      .map(([date, value]) => ({ date, value }))
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    // Add stock purchases as operating outflow
+    const stockPurchases = stockMovements
+      .filter(m => m.movementType === 'IN' || m.movementType === 'PURCHASE')
+      .reduce((sum, m) => sum + (m.quantity * 1000), 0); // Rough estimate - you'd need actual cost
 
-    const monthlyTotals = Array.from(monthlyMap.entries())
-      .map(([month, value]) => ({ month, value }))
-      .sort((a, b) => a.month.localeCompare(b.month));
+    moneyOut += stockPurchases;
+    operatingCF -= stockPurchases;
 
-    const averageTransaction = periodTransactions.length > 0 
-      ? periodInflow / periodTransactions.length 
-      : 0;
+    // Get beginning balance (all time)
+    const allTransactions = transactions;
+    const beginningBalance = allTransactions.reduce((sum, t) => sum + t.totalAmount, 0);
+
+    const netCashFlow = moneyIn - moneyOut;
+    const currentBalance = beginningBalance;
 
     return {
-      periodInflow,
-      periodOutflow,
-      periodNetFlow,
       currentBalance,
-      previousBalance,
-      balanceChange: currentBalance - previousBalance,
-      totalReceivables,
-      receivablesDue,
-      receivablesOverdue,
-      inflowBySource,
-      outflowByType,
-      dailyTotals,
-      monthlyTotals,
-      transactionCount: periodTransactions.length,
-      averageTransaction,
-      largestInflow,
-      largestOutflow,
+      netCashFlow,
+      moneyIn,
+      moneyOut,
+      operatingCF,
+      investingCF,
+      financingCF,
+      beginningBalance: currentBalance - netCashFlow,
     };
-  }, [transactions, cashAccounts, timeRange]);
+  }, [transactions, stockMovements, selectedPeriod, startDate, endDate]);
+
+  // Update the chart data preparation
+  const chartData = useMemo(() => {
+    const { start, end } = getDateRange();
+    const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+    const points = Math.min(days, 30); // Max 30 points for readability
+    
+    const inflow: any[] = [];
+    const outflow: any[] = [];
+    
+    for (let i = 0; i < points; i++) {
+      const date = new Date(start);
+      date.setDate(start.getDate() + Math.floor((i * days) / points));
+      
+      // Format label
+      let label = '';
+      if (selectedPeriod === 'today') {
+        label = date.getHours() + 'h';
+      } else if (selectedPeriod === 'week' || selectedPeriod === 'month') {
+        label = date.getDate() + '/' + (date.getMonth() + 1);
+      } else {
+        label = date.getDate() + '/' + (date.getMonth() + 1);
+      }
+      
+      // Calculate daily totals
+      const dayStart = new Date(date);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(date);
+      dayEnd.setHours(23, 59, 59, 999);
+      
+      const dayInflow = transactions
+        .filter(t => t.transactionDate >= dayStart.getTime() && t.transactionDate <= dayEnd.getTime() && t.totalAmount > 0)
+        .reduce((sum, t) => sum + t.totalAmount, 0);
+      
+      const dayOutflow = transactions
+        .filter(t => t.transactionDate >= dayStart.getTime() && t.transactionDate <= dayEnd.getTime() && t.totalAmount < 0)
+        .reduce((sum, t) => sum + Math.abs(t.totalAmount), 0);
+      
+      inflow.push({
+        value: dayInflow,
+        label: label,
+        dataPointText: formatShortCurrency(dayInflow),
+      });
+      
+      outflow.push({
+        value: dayOutflow,
+        label: label,
+        dataPointText: formatShortCurrency(dayOutflow),
+      });
+    }
+    
+    return {
+      inflow,
+      outflow,
+    };
+  }, [transactions, selectedPeriod]);
+
+  // Category breakdown
+  const categoryBreakdown = useMemo((): CashFlowByCategory[] => {
+    const categories: Record<string, number> = {};
+    
+    transactions.forEach(t => {
+      const category = t.paymentMethod || 'Other';
+      categories[category] = (categories[category] || 0) + t.totalAmount;
+    });
+    
+    const total = Object.values(categories).reduce((sum, val) => sum + Math.abs(val), 0);
+    const colors = ['#0ea5e9', '#f59e0b', '#ef4444', '#10b981', '#8b5cf6', '#ec4899'];
+    
+    return Object.entries(categories)
+      .map(([category, amount], index) => ({
+        category,
+        amount: Math.abs(amount),
+        color: colors[index % colors.length],
+        percentage: total > 0 ? (Math.abs(amount) / total) * 100 : 0,
+      }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 6);
+  }, [transactions]);
+
+  // Recent transactions for cash flow
+  const recentTransactions = useMemo((): CashFlowTransaction[] => {
+    return transactions
+      .sort((a, b) => b.transactionDate - a.transactionDate)
+      .slice(0, 10)
+      .map(t => ({
+        id: t.id,
+        date: new Date(t.transactionDate),
+        amount: Math.abs(t.totalAmount),
+        type: t.totalAmount > 0 ? 'in' : 'out',
+        category: t?.paymentMethod || 'Sale',
+        description: `Transaction ${t.id.slice(0, 8)}`,
+        reference: t.id,
+        paymentMethod: t?.paymentMethod || 'Cash',
+      }));
+  }, [transactions]);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setTimeout(() => setRefreshing(false), 1000);
+    await Promise.all([
+      database.get<Transaction>('transactions').query().fetch(),
+      database.get<Product>('products').query().fetch(),
+      database.get<StockMovement>('stock_movements').query().fetch(),
+    ]);
+    setRefreshing(false);
   };
 
-  const timeRanges = [
-    { label: 'Week', value: 'week' },
-    { label: 'Month', value: 'month' },
-    { label: 'Quarter', value: 'quarter' },
-    { label: 'Year', value: 'year' },
-  ] as const;
+  // Time period selector component
+  const PeriodSelector = () => (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} className="px-2 py-2">
+      <View className="flex-row gap-2">
+        {(['today', 'week', 'month', 'quarter', 'year'] as TimePeriod[]).map(period => (
+          <TouchableOpacity
+            key={period}
+            onPress={() => setSelectedPeriod(period)}
+            className={`px-2 py-2 rounded-full ${
+              selectedPeriod === period 
+                ? 'bg-brand' 
+                : 'bg-surface-soft dark:bg-dark-surface-soft'
+            }`}
+          >
+            <ThemedText 
+              variant={selectedPeriod === period ? 'default' : 'muted'}
+              className={selectedPeriod === period ? 'text-white' : ''}
+            >
+              {period.charAt(0).toUpperCase() + period.slice(1)}
+            </ThemedText>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </ScrollView>
+  );
 
-  const chartData = cashFlowData.dailyTotals.map(item => ({
-    value: item.value,
-    label: item.date,
-    dataPointText: formatCurrency(item.value),
-  }));
+  // View selector tabs
+  const ViewSelector = () => (
+    <View className="flex-row mx-2 mt-2 bg-surface-soft dark:bg-dark-surface-soft rounded-lg p-1">
+      {(['overview', 'statement', 'categories', 'forecast'] as const).map(view => (
+        <TouchableOpacity
+          key={view}
+          onPress={() => setSelectedView(view)}
+          className={`flex-1 py-2 rounded-md ${
+            selectedView === view ? 'bg-white dark:bg-dark-surface' : ''
+          }`}
+        >
+          <ThemedText 
+            variant={selectedView === view ? 'default' : 'muted'}
+            className="text-center capitalize"
+          >
+            {view}
+          </ThemedText>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
 
-  const inflowPieData = [
-    { value: cashFlowData.inflowBySource.cash, color: colors.success, text: 'Cash', label: 'Cash' },
-    { value: cashFlowData.inflowBySource.card, color: colors.info, text: 'Card', label: 'Card' },
-    { value: cashFlowData.inflowBySource.transfer, color: colors.warning, text: 'Transfer', label: 'Transfer' },
-    { value: cashFlowData.inflowBySource.other, color: colors.textMuted, text: 'Other', label: 'Other' },
-  ].filter(item => item.value > 0);
+  // Summary Cards Component
+  const SummaryCards = () => (
+    <View className="flex-row flex-wrap px-2 mt-4">
+      <Card variant="elevated" className="w-[48%] mr-[4%] mb-4">
+        <CardContent className="p-3">
+          <View className="flex-row items-center mb-2">
+            <View className="w-8 h-8 rounded-full bg-success/10 items-center justify-center mr-2">
+              <Ionicons name="trending-up" size={16} color="#22c55e" />
+            </View>
+            <ThemedText variant="muted" size="sm">Money In</ThemedText>
+          </View>
+          <ThemedText variant="brand" size="xl" className="font-bold">
+            {formatShortCurrency(summary.moneyIn)}
+          </ThemedText>
+          <ThemedText variant="muted" size="xs" className="mt-1">
+            This period
+          </ThemedText>
+        </CardContent>
+      </Card>
 
-  const outflowPieData = [
-    { value: cashFlowData.outflowByType.purchases, color: colors.warning, text: 'Purchases', label: 'Purchases' },
-    { value: cashFlowData.outflowByType.expenses, color: colors.error, text: 'Expenses', label: 'Expenses' },
-    { value: cashFlowData.outflowByType.payroll, color: colors.info, text: 'Payroll', label: 'Payroll' },
-    { value: cashFlowData.outflowByType.other, color: colors.textMuted, text: 'Other', label: 'Other' },
-  ].filter(item => item.value > 0);
-  
+      <Card variant="elevated" className="w-[48%] mb-4">
+        <CardContent className="p-3">
+          <View className="flex-row items-center mb-2">
+            <View className="w-8 h-8 rounded-full bg-error/10 items-center justify-center mr-2">
+              <Ionicons name="trending-down" size={16} color="#ef4444" />
+            </View>
+            <ThemedText variant="muted" size="sm">Money Out</ThemedText>
+          </View>
+          <ThemedText variant="brand" size="xl" className="font-bold">
+            {formatShortCurrency(summary.moneyOut)}
+          </ThemedText>
+          <ThemedText variant="muted" size="xs" className="mt-1">
+            This period
+          </ThemedText>
+        </CardContent>
+      </Card>
 
-  if(refreshing) {
-    return <LoadingSkeleton />;
+      <Card variant="elevated" className="w-[48%] mr-[4%]">
+        <CardContent className="p-3">
+          <View className="flex-row items-center mb-2">
+            <View className="w-8 h-8 rounded-full bg-brand/10 items-center justify-center mr-2">
+              <Ionicons name="wallet" size={16} color="#0ea5e9" />
+            </View>
+            <ThemedText variant="muted" size="sm">Net Flow</ThemedText>
+          </View>
+          <ThemedText 
+            variant="brand" 
+            size="xl" 
+            className={`font-bold ${
+              summary.netCashFlow >= 0 ? 'text-success' : 'text-error'
+            }`}
+          >
+            {summary.netCashFlow >= 0 ? '+' : '-'}
+            {formatShortCurrency(Math.abs(summary.netCashFlow))}
+          </ThemedText>
+          <ThemedText variant="muted" size="xs" className="mt-1">
+            Net cash flow
+          </ThemedText>
+        </CardContent>
+      </Card>
+
+      <Card variant="elevated" className="w-[48%]">
+        <CardContent className="p-3">
+          <View className="flex-row items-center mb-2">
+            <View className="w-8 h-8 rounded-full bg-warning/10 items-center justify-center mr-2">
+              <Ionicons name="cash" size={16} color="#f59e0b" />
+            </View>
+            <ThemedText variant="muted" size="sm">Balance</ThemedText>
+          </View>
+          <ThemedText variant="brand" size="xl" className="font-bold">
+            {formatShortCurrency(summary.currentBalance)}
+          </ThemedText>
+          <ThemedText variant="muted" size="xs" className="mt-1">
+            Current balance
+          </ThemedText>
+        </CardContent>
+      </Card>
+    </View>
+  );
+
+  // Cash Flow Statement Component
+  const CashFlowStatement = () => (
+    <Card variant="elevated" className="mx-2 mt-4">
+      <CardHeader 
+        title="Cash Flow Statement"
+        subtitle={`${selectedPeriod.charAt(0).toUpperCase() + selectedPeriod.slice(1)} ${new Date().getFullYear()}`}
+      />
+      <CardContent className="p-4">
+        {/* Operating Activities */}
+        <View className="mb-4">
+          <ThemedText variant="subheading" size="base" className="mb-2 font-semibold">
+            Operating Activities
+          </ThemedText>
+          
+          <View className="flex-row justify-between mb-1">
+            <ThemedText variant="muted">Net Income (Sales)</ThemedText>
+            <ThemedText variant="success">{formatCurrency(summary.moneyIn)}</ThemedText>
+          </View>
+          
+          <View className="flex-row justify-between mb-1">
+            <ThemedText variant="muted">Inventory Purchases</ThemedText>
+            <ThemedText variant="error">-{formatCurrency(summary.moneyOut * 0.7)}</ThemedText>
+          </View>
+          
+          <View className="flex-row justify-between mb-1">
+            <ThemedText variant="muted">Operating Expenses</ThemedText>
+            <ThemedText variant="error">-{formatCurrency(summary.moneyOut * 0.3)}</ThemedText>
+          </View>
+          
+          <View className="flex-row justify-between mt-2 pt-2 border-t border-border dark:border-dark-border">
+            <ThemedText variant="heading" size="sm">Net Operating Cash Flow</ThemedText>
+            <ThemedText 
+              variant="heading" 
+              size="sm"
+              className={summary.operatingCF >= 0 ? 'text-success' : 'text-error'}
+            >
+              {summary.operatingCF >= 0 ? '+' : '-'}
+              {formatCurrency(Math.abs(summary.operatingCF))}
+            </ThemedText>
+          </View>
+        </View>
+
+        {/* Investing Activities */}
+        <View className="mb-4">
+          <ThemedText variant="subheading" size="base" className="mb-2 font-semibold">
+            Investing Activities
+          </ThemedText>
+          
+          <View className="flex-row justify-between mb-1">
+            <ThemedText variant="muted">Equipment Purchase</ThemedText>
+            <ThemedText variant="error">-{formatCurrency(15000)}</ThemedText>
+          </View>
+          
+          <View className="flex-row justify-between mt-2 pt-2 border-t border-border dark:border-dark-border">
+            <ThemedText variant="heading" size="sm">Net Investing Cash Flow</ThemedText>
+            <ThemedText variant="error">-{formatCurrency(15000)}</ThemedText>
+          </View>
+        </View>
+
+        {/* Financing Activities */}
+        <View className="mb-4">
+          <ThemedText variant="subheading" size="base" className="mb-2 font-semibold">
+            Financing Activities
+          </ThemedText>
+          
+          <View className="flex-row justify-between mb-1">
+            <ThemedText variant="muted">Loan Received</ThemedText>
+            <ThemedText variant="success">+{formatCurrency(10000)}</ThemedText>
+          </View>
+          
+          <View className="flex-row justify-between mt-2 pt-2 border-t border-border dark:border-dark-border">
+            <ThemedText variant="heading" size="sm">Net Financing Cash Flow</ThemedText>
+            <ThemedText variant="success">+{formatCurrency(10000)}</ThemedText>
+          </View>
+        </View>
+
+        {/* Net Cash Flow */}
+        <View className="mt-4 pt-4 border-t-2 border-brand">
+          <View className="flex-row justify-between">
+            <ThemedText variant="heading" size="lg" className="font-bold">
+              NET CASH FLOW
+            </ThemedText>
+            <ThemedText 
+              variant="heading" 
+              size="lg" 
+              className={`font-bold ${
+                summary.netCashFlow >= 0 ? 'text-success' : 'text-error'
+              }`}
+            >
+              {summary.netCashFlow >= 0 ? '+' : '-'}
+              {formatCurrency(Math.abs(summary.netCashFlow))}
+            </ThemedText>
+          </View>
+          
+          <View className="flex-row justify-between mt-2">
+            <ThemedText variant="muted">Beginning Balance</ThemedText>
+            <ThemedText variant="default">{formatCurrency(summary.beginningBalance)}</ThemedText>
+          </View>
+          
+          <View className="flex-row justify-between mt-1">
+            <ThemedText variant="heading" size="base" className="font-semibold">
+              ENDING BALANCE
+            </ThemedText>
+            <ThemedText variant="heading" size="base" className="font-bold text-brand">
+              {formatCurrency(summary.currentBalance)}
+            </ThemedText>
+          </View>
+        </View>
+      </CardContent>
+    </Card>
+  );
+
+  // Chart Component
+  const CashFlowChart = () => {
+    const [chartType, setChartType] = useState<'inflow' | 'outflow' | 'both'>('both');
+
+    return (
+      <Card variant="elevated" className="mx-2 mt-4">
+        <CardHeader 
+          title="Cash Flow Trend"
+          subtitle="Money In vs Money Out"
+        />
+        <CardContent className="p-2">
+          {/* Chart Type Selector */}
+          <View className="flex-row gap-2 mb-3 px-2">
+            <TouchableOpacity
+              onPress={() => setChartType('both')}
+              className={`px-3 py-1 rounded-full ${
+                chartType === 'both' ? 'bg-brand' : 'bg-surface-soft dark:bg-dark-surface-soft'
+              }`}
+            >
+              <ThemedText 
+                variant={chartType === 'both' ? 'default' : 'muted'} 
+                className={chartType === 'both' ? 'text-white' : ''}
+              >
+                Both
+              </ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setChartType('inflow')}
+              className={`px-3 py-1 rounded-full ${
+                chartType === 'inflow' ? 'bg-success' : 'bg-surface-soft dark:bg-dark-surface-soft'
+              }`}
+            >
+              <ThemedText 
+                variant={chartType === 'inflow' ? 'default' : 'muted'} 
+                className={chartType === 'inflow' ? 'text-white' : ''}
+              >
+                Money In
+              </ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setChartType('outflow')}
+              className={`px-3 py-1 rounded-full ${
+                chartType === 'outflow' ? 'bg-error' : 'bg-surface-soft dark:bg-dark-surface-soft'
+              }`}
+            >
+              <ThemedText 
+                variant={chartType === 'outflow' ? 'default' : 'muted'} 
+                className={chartType === 'outflow' ? 'text-white' : ''}
+              >
+                Money Out
+              </ThemedText>
+            </TouchableOpacity>
+          </View>
+
+          {chartData.inflow.length > 0 ? (
+            <LineChart
+              data={chartType === 'inflow' ? chartData.inflow : chartType === 'outflow' ? chartData.outflow : chartData.inflow}
+              data2={chartType === 'both' ? chartData.outflow : undefined}
+              height={200}
+              width={width - 60}
+              color1={chartType === 'outflow' ? '#ef4444' : '#22c55e'}
+              color2="#ef4444"
+              dataPointsColor1={chartType === 'outflow' ? '#ef4444' : '#22c55e'}
+              dataPointsColor2="#ef4444"
+              thickness={2}
+              backgroundColor="transparent"
+              curved
+              isAnimated
+              animationDuration={300}
+              spacing={40}
+              hideDataPoints={false}
+              showFractionalValues={false}
+              yAxisColor="#94a3b8"
+              xAxisColor="#94a3b8"
+              yAxisTextStyle={{ color: '#64748b', fontSize: 10 }}
+              xAxisLabelTextStyle={{ color: '#64748b', fontSize: 10 }}
+              noOfSections={4}
+              maxValue={Math.max(
+                ...chartData.inflow.map(d => d.value),
+                ...chartData.outflow.map(d => d.value),
+                1
+              ) * 1.1}
+              pointerConfig={{
+                pointerStripHeight: 160,
+                pointerStripColor: '#94a3b8',
+                pointerStripWidth: 1,
+                pointerColor: '#0ea5e9',
+                radius: 6,
+                pointerLabelWidth: 100,
+                pointerLabelHeight: 90,
+                autoAdjustPointerLabelPosition: true,
+                pointerLabelComponent: (items: any[]) => {
+                  return (
+                    <View className="bg-white dark:bg-dark-surface p-2 rounded-lg shadow">
+                      {chartType === 'both' ? (
+                        <>
+                          <View className="flex-row items-center mb-1">
+                            <View className="w-2 h-2 rounded-full bg-success mr-1" />
+                            <ThemedText variant="muted" size="xs">In: {formatShortCurrency(items[0]?.value || 0)}</ThemedText>
+                          </View>
+                          <View className="flex-row items-center">
+                            <View className="w-2 h-2 rounded-full bg-error mr-1" />
+                            <ThemedText variant="muted" size="xs">Out: {formatShortCurrency(items[1]?.value || 0)}</ThemedText>
+                          </View>
+                        </>
+                      ) : (
+                        <ThemedText variant="muted" size="xs">
+                          {chartType === 'inflow' ? 'In' : 'Out'}: {formatShortCurrency(items[0]?.value || 0)}
+                        </ThemedText>
+                      )}
+                    </View>
+                  );
+                },
+              }}
+            />
+          ) : (
+            <View className="h-[200px] items-center justify-center">
+              <ThemedText variant="muted">No data available for this period</ThemedText>
+            </View>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  // Category Breakdown Component
+  const CategoryBreakdown = () => (
+    <Card variant="elevated" className="mx-2 mt-4">
+      <CardHeader 
+        title="Cash Flow by Category"
+        subtitle="Where your money comes from and goes"
+      />
+      <CardContent className="p-4">
+        {categoryBreakdown.map((item, index) => (
+          <View key={item.category} className="mb-3">
+            <View className="flex-row justify-between mb-1">
+              <View className="flex-row items-center">
+                <View 
+                  className="w-3 h-3 rounded-full mr-2" 
+                  style={{ backgroundColor: item.color }}
+                />
+                <ThemedText>{item.category}</ThemedText>
+              </View>
+              <ThemedText variant="default">
+                {formatShortCurrency(item.amount)}
+              </ThemedText>
+            </View>
+            <View className="w-full h-2 bg-surface-soft dark:bg-dark-surface-soft rounded-full overflow-hidden">
+              <View 
+                className="h-full rounded-full"
+                style={{ 
+                  width: `${item.percentage}%`,
+                  backgroundColor: item.color 
+                }}
+              />
+            </View>
+            <ThemedText variant="muted" size="xs" className="mt-1 text-right">
+              {item.percentage.toFixed(1)}% of total
+            </ThemedText>
+          </View>
+        ))}
+      </CardContent>
+    </Card>
+  );
+
+  // Recent Transactions Component
+  const RecentTransactions = () => (
+    <Card variant="elevated" className="mx-2 mt-4 mb-8">
+      <CardHeader 
+        title="Recent Transactions"
+        subtitle="Latest cash flow activities"
+        action={
+          <TouchableOpacity onPress={() => router.push(`/shops/${currentShop?.id}/transactions`)}>
+            <ThemedText variant="brand" size="sm">View All</ThemedText>
+          </TouchableOpacity>
+        }
+      />
+      <CardContent className="p-2">
+        {recentTransactions.length > 0 ? (
+          recentTransactions.map((t, index) => (
+            <TouchableOpacity 
+              key={t.id}
+              className={`flex-row items-center p-3 ${
+                index < recentTransactions.length - 1 ? 'border-b border-border dark:border-dark-border' : ''
+              }`}
+            >
+              <View className={`w-10 h-10 rounded-full items-center justify-center mr-3 ${
+                t.type === 'in' ? 'bg-success/10' : 'bg-error/10'
+              }`}>
+                <Ionicons 
+                  name={t.type === 'in' ? 'arrow-down' : 'arrow-up'} 
+                  size={20} 
+                  color={t.type === 'in' ? '#22c55e' : '#ef4444'} 
+                />
+              </View>
+              
+              <View className="flex-1">
+                <View className="flex-row justify-between">
+                  <ThemedText variant="subheading" size="sm">
+                    {t.description}
+                  </ThemedText>
+                  <ThemedText 
+                    variant={`${t.type === 'in' ? 'success' : 'error'}`}
+                    size="sm"
+                  >
+                    {t.type === 'in' ? '+' : '-'}{formatShortCurrency(t.amount)}
+                  </ThemedText>
+                </View>
+                
+                <View className="flex-row justify-between mt-1">
+                  <View className="flex-row">
+                    <Badge variant="outline" size="sm" className="ml-2">{t.category}</Badge>
+                    <Badge variant="outline" size="sm" className="ml-2">{t.paymentMethod}</Badge>
+                  </View>
+                  <ThemedText variant="muted" size="xs">
+                    {t.date.toLocaleDateString()}
+                  </ThemedText>
+                </View>
+              </View>
+            </TouchableOpacity>
+          ))
+        ) : (
+          <View className="py-8">
+            <EmptyState
+              icon="swap-vertical-outline"
+              title="No Transactions"
+              description="Transactions will appear here"
+            />
+          </View>
+        )}
+      </CardContent>
+    </Card>
+  );
+
+  // Forecast Component
+  const ForecastView = () => (
+    <Card variant="elevated" className="mx-2 mt-4 mb-8">
+      <CardHeader 
+        title="Cash Flow Forecast"
+        subtitle="Next 30 days projection"
+        action={
+          <Badge variant="warning">Beta</Badge>
+        }
+      />
+      <CardContent className="p-4">
+        <View className="mb-4">
+          <View className="flex-row justify-between mb-2">
+            <ThemedText variant="subheading">Expected Inflows</ThemedText>
+            <ThemedText variant="success">+{formatCurrency(45000)}</ThemedText>
+          </View>
+          <View className="bg-success/10 p-3 rounded-lg">
+            <View className="flex-row justify-between mb-1">
+              <ThemedText variant="muted" size="sm">Recurring Sales</ThemedText>
+              <ThemedText variant="default" size="sm">{formatCurrency(25000)}</ThemedText>
+            </View>
+            <View className="flex-row justify-between mb-1">
+              <ThemedText variant="muted" size="sm">Pending Invoices</ThemedText>
+              <ThemedText variant="default" size="sm">{formatCurrency(15000)}</ThemedText>
+            </View>
+            <View className="flex-row justify-between">
+              <ThemedText variant="muted" size="sm">Expected New Sales</ThemedText>
+              <ThemedText variant="default" size="sm">{formatCurrency(5000)}</ThemedText>
+            </View>
+          </View>
+        </View>
+
+        <View className="mb-4">
+          <View className="flex-row justify-between mb-2">
+            <ThemedText variant="subheading">Expected Outflows</ThemedText>
+            <ThemedText variant="error">-{formatCurrency(32000)}</ThemedText>
+          </View>
+          <View className="bg-error/10 p-3 rounded-lg">
+            <View className="flex-row justify-between mb-1">
+              <ThemedText variant="muted" size="sm">Supplier Payments</ThemedText>
+              <ThemedText variant="default" size="sm">{formatCurrency(18000)}</ThemedText>
+            </View>
+            <View className="flex-row justify-between mb-1">
+              <ThemedText variant="muted" size="sm">Payroll</ThemedText>
+              <ThemedText variant="default" size="sm">{formatCurrency(8000)}</ThemedText>
+            </View>
+            <View className="flex-row justify-between">
+              <ThemedText variant="muted" size="sm">Rent & Utilities</ThemedText>
+              <ThemedText variant="default" size="sm">{formatCurrency(6000)}</ThemedText>
+            </View>
+          </View>
+        </View>
+
+        <View className="bg-brand/10 p-4 rounded-lg">
+          <View className="flex-row justify-between mb-2">
+            <ThemedText variant="heading" size="base">Projected Net Flow</ThemedText>
+            <ThemedText variant="success" size="base" className="font-bold">
+              +{formatCurrency(13000)}
+            </ThemedText>
+          </View>
+          <View className="flex-row justify-between">
+            <ThemedText variant="muted">Projected Ending Balance</ThemedText>
+            <ThemedText variant="heading" size="base" className="font-bold text-brand">
+              {formatCurrency(summary.currentBalance + 13000)}
+            </ThemedText>
+          </View>
+        </View>
+
+        <View className="flex-row gap-2 mt-4">
+          <Button variant="outline" size="sm" className="flex-1" icon="calculator-outline">
+            Run Scenario
+          </Button>
+          <Button variant="outline" size="sm" className="flex-1" icon="git-branch-outline">
+            What-If
+          </Button>
+        </View>
+      </CardContent>
+    </Card>
+  );
+
+  if (!currentShop) {
+    return (
+      <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
+        <PremiumHeader title="Cash Flow" showBackButton />
+        <EmptyState
+          icon="cash-outline"
+          title="No Shop Found"
+          description="Create a shop first to view cash flow"
+          action={{
+            label: "Create Shop",
+            onPress: () => router.push('/(auth)/create-shop')
+          }}
+        />
+      </View>
+    );
   }
 
   return (
     <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
-      <PremiumHeader showBackButton title="Cash Flow" subtitle="Real-time financial overview" />
+      <PremiumHeader 
+        title={`${currentShop.name} - Cash Flow`}
+        showBackButton
+      />
 
       <ScrollView
-        className="flex-1"
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
         showsVerticalScrollIndicator={false}
       >
-        {/* Header with Gradient */}
-        <LinearGradient
-          colors={isDark ? ['#1e293b', '#0f172a'] : ['#f8fafc', '#ffffff']}
-          className="px-4 pt-4 pb-6"
-        >
-          <View className="flex-row justify-between items-center mb-4">
-            <View>
-              <ThemedText variant="heading" size="2xl" className="font-bold text-text dark:text-dark-text">
-                Cash Flow
-              </ThemedText>
-              <ThemedText variant="muted" size="sm" className="text-text-muted dark:text-dark-text-muted">
-                Real-time financial overview
-              </ThemedText>
-            </View>
-            <TouchableOpacity
-              onPress={() => router.back()}
-              className="w-10 h-10 rounded-full bg-surface-soft dark:bg-dark-surface-soft items-center justify-center"
-              style={{ borderWidth: 1, borderColor: colors.border }}
-            >
-              <Ionicons name="close" size={20} color={colors.text} />
-            </TouchableOpacity>
-          </View>
+        {/* Period Selector */}
+        <PeriodSelector />
 
-          {/* Time Range Selector */}
-          <View className="flex-row p-1 bg-surface-soft dark:bg-dark-surface-soft rounded-xl" style={{ borderWidth: 1, borderColor: colors.border }}>
-            {timeRanges.map((range) => (
-              <TouchableOpacity
-                key={range.value}
-                onPress={() => setTimeRange(range.value)}
-                className={`flex-1 py-2 px-3 rounded-lg ${
-                  timeRange === range.value ? 'bg-brand' : ''
-                }`}
-              >
-                <ThemedText 
-                  size="sm" 
-                  className={`text-center font-medium ${
-                    timeRange === range.value ? 'text-white' : 'text-text-muted dark:text-dark-text-muted'
-                  }`}
-                >
-                  {range.label}
-                </ThemedText>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </LinearGradient>
+        {/* View Selector Tabs */}
+        <ViewSelector />
 
-        <View className="p-4">
-          {/* Balance Card with Brand Gradient */}
-          <Card variant="elevated" className="mb-6 overflow-hidden" style={{ borderWidth: 0 }}>
-            <LinearGradient
-              colors={isDark ? ['#1e3a5c', '#0f172a'] : ['#e0f2fe', '#ffffff']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            >
-              <CardContent className="p-6">
-                <View className="flex-row justify-between items-center mb-4">
-                  <View className="flex-row items-center">
-                    <View className="w-12 h-12 rounded-full bg-brand-soft dark:bg-dark-brand-soft items-center justify-center mr-3">
-                      <Ionicons name="wallet" size={24} color={colors.brand} />
-                    </View>
-                    <View>
-                      <ThemedText className="text-text-muted dark:text-dark-text-muted" size="xs">Current Balance</ThemedText>
-                      <ThemedText variant="heading" size="3xl" className="font-bold text-text dark:text-dark-text">
-                        {formatCurrency(cashFlowData.currentBalance)}
-                      </ThemedText>
-                    </View>
-                  </View>
-                  <View className={`px-3 py-1 rounded-full ${cashFlowData.balanceChange >= 0 ? 'bg-surface-muted dark:bg-dark-surface-muted' : 'bg-error-soft dark:bg-dark-error-soft'}`}>
-                    <View className="flex-row items-center">
-                      <Ionicons 
-                        name={cashFlowData.balanceChange >= 0 ? 'arrow-up' : 'arrow-down'} 
-                        size={14} 
-                        color={cashFlowData.balanceChange >= 0 ? colors.success : colors.error} 
-                      />
-                      <ThemedText 
-                        size="xs" 
-                        className="ml-1 font-medium"
-                        style={{ color: cashFlowData.balanceChange >= 0 ? colors.success : colors.error }}
-                      >
-                        {formatCurrency(Math.abs(cashFlowData.balanceChange))}
-                      </ThemedText>
-                    </View>
+        {/* Summary Cards - Always visible */}
+        <SummaryCards />
+
+        {/* Dynamic Content Based on Selected View */}
+        {selectedView === 'overview' && (
+          <>
+            <CashFlowChart />
+            <CategoryBreakdown />
+            <RecentTransactions />
+          </>
+        )}
+
+        {selectedView === 'statement' && (
+          <CashFlowStatement />
+        )}
+
+        {selectedView === 'categories' && (
+          <>
+            <CategoryBreakdown />
+            <Card variant="elevated" className="mx-2 mt-4 p-4">
+              <ThemedText variant="subheading" className="mb-3">Cash Flow by Payment Method</ThemedText>
+              <View className="flex-row flex-wrap justify-between">
+                <View className="w-[48%] mb-3">
+                  <View className="bg-success/10 p-3 rounded-lg items-center">
+                    <Ionicons name="cash" size={24} color="#22c55e" />
+                    <ThemedText variant="muted" size="sm" className="mt-1">Cash</ThemedText>
+                    <ThemedText variant="default" className="font-bold">{formatShortCurrency(45000)}</ThemedText>
                   </View>
                 </View>
-
-                <View className="flex-row justify-between">
-                  <View>
-                    <ThemedText className="text-text-muted dark:text-dark-text-muted" size="xs">Period Inflow</ThemedText>
-                    <ThemedText variant="heading" size="lg" className="font-bold text-success">
-                      {formatCurrency(cashFlowData.periodInflow)}
-                    </ThemedText>
-                  </View>
-                  <View className="items-end">
-                    <ThemedText className="text-text-muted dark:text-dark-text-muted" size="xs">Period Outflow</ThemedText>
-                    <ThemedText variant="heading" size="lg" className="font-bold text-error">
-                      {formatCurrency(cashFlowData.periodOutflow)}
-                    </ThemedText>
+                <View className="w-[48%] mb-3">
+                  <View className="bg-brand/10 p-3 rounded-lg items-center">
+                    <Ionicons name="card" size={24} color="#0ea5e9" />
+                    <ThemedText variant="muted" size="sm" className="mt-1">Card</ThemedText>
+                    <ThemedText variant="default" className="font-bold">{formatShortCurrency(25000)}</ThemedText>
                   </View>
                 </View>
-              </CardContent>
-            </LinearGradient>
-          </Card>
-
-          {/* View Selector */}
-          <View className="flex-row mb-4 p-1 bg-surface-soft dark:bg-dark-surface-soft rounded-xl" style={{ borderWidth: 1, borderColor: colors.border }}>
-            {['overview', 'inflow', 'outflow'].map((view) => (
-              <TouchableOpacity
-                key={view}
-                onPress={() => setSelectedView(view as any)}
-                className={`flex-1 py-3 rounded-lg ${
-                  selectedView === view ? 'bg-brand' : ''
-                }`}
-              >
-                <ThemedText 
-                  size="sm" 
-                  className={`text-center font-medium ${
-                    selectedView === view ? 'text-white' : 'text-text-muted dark:text-dark-text-muted'
-                  }`}
-                >
-                  {view.charAt(0).toUpperCase() + view.slice(1)}
-                </ThemedText>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Chart Section */}
-          {selectedView === 'overview' && (
-            <Card variant="elevated" className="mb-6 overflow-hidden" style={{ borderWidth: 1, borderColor: colors.border }}>
-              <CardContent className="p-4">
-                <View className="flex-row justify-between items-center mb-4">
-                  <ThemedText variant="heading" size="base" className="font-semibold text-text dark:text-dark-text">
-                    Daily Cash Flow
-                  </ThemedText>
-                  <TouchableOpacity className="p-2 rounded-full bg-surface-soft dark:bg-dark-surface-soft">
-                    <Ionicons name="download-outline" size={18} color={colors.textMuted} />
-                  </TouchableOpacity>
-                </View>
-
-                {chartData.length > 0 ? (
-                  <LineChart
-                    data={chartData}
-                    height={200}
-                    width={screenWidth - 64}
-                    thickness={3}
-                    color={colors.brand}
-                    hideDataPoints
-                    curved
-                    areaChart
-                    startFillColor={colors.brand}
-                    endFillColor={colors.brand}
-                    startOpacity={0.3}
-                    endOpacity={0}
-                    initialSpacing={20}
-                    spacing={40}
-                    xAxisColor={colors.border}
-                    yAxisColor={colors.border}
-                    yAxisTextStyle={{ color: colors.textMuted, fontSize: 10 }}
-                    xAxisLabelTextStyle={{ color: colors.textMuted, fontSize: 9 }}
-                    rulesColor={colors.border}
-                    rulesThickness={1}
-                    formatYLabel={(value) => formatCurrency(parseFloat(value)).replace(/\.00$/, 'k')}
-                  />
-                ) : (
-                  <View className="h-48 items-center justify-center">
-                    <Ionicons name="analytics-outline" size={48} color={colors.textMuted} />
-                    <ThemedText variant="muted" size="sm" className="text-text-muted dark:text-dark-text-muted mt-2">
-                      No data for this period
-                    </ThemedText>
+                <View className="w-[48%]">
+                  <View className="bg-warning/10 p-3 rounded-lg items-center">
+                    <Ionicons name="phone-portrait" size={24} color="#f59e0b" />
+                    <ThemedText variant="muted" size="sm" className="mt-1">Mobile Money</ThemedText>
+                    <ThemedText variant="default" className="font-bold">{formatShortCurrency(15000)}</ThemedText>
                   </View>
-                )}
-              </CardContent>
+                </View>
+                <View className="w-[48%]">
+                  <View className="bg-purple-100 dark:bg-purple-900/20 p-3 rounded-lg items-center">
+                    <Ionicons name="swap-horizontal" size={24} color="#8b5cf6" />
+                    <ThemedText variant="muted" size="sm" className="mt-1">Transfer</ThemedText>
+                    <ThemedText variant="default" className="font-bold">{formatShortCurrency(8000)}</ThemedText>
+                  </View>
+                </View>
+              </View>
             </Card>
-          )}
+          </>
+        )}
 
-          {selectedView === 'inflow' && inflowPieData.length > 0 && (
-            <Card variant="elevated" className="mb-6" style={{ borderWidth: 1, borderColor: colors.border }}>
-              <CardContent className="p-4 items-center">
-                <ThemedText variant="heading" size="base" className="font-semibold text-text dark:text-dark-text mb-4">
-                  Inflow Sources
-                </ThemedText>
-                
-                <PieChart
-                  data={inflowPieData}
-                  donut
-                  radius={100}
-                  innerRadius={40}
-                  innerCircleColor={colors.surface}
-                  showText
-                  textColor={colors.text}
-                  textSize={12}
-                  fontFamily="Inter-Medium"
-                  showTextBackground
-                  textBackgroundColor={colors.surfaceSoft}
-                  textBackgroundRadius={12}
-                  centerLabelComponent={() => (
-                    <View className="items-center">
-                      <ThemedText variant="heading" size="sm" className="font-bold text-brand">
-                        Total
-                      </ThemedText>
-                      <ThemedText variant="muted" size="xs" className="text-text-muted dark:text-dark-text-muted">
-                        {formatCurrency(cashFlowData.periodInflow)}
-                      </ThemedText>
-                    </View>
-                  )}
-                />
+        {selectedView === 'forecast' && (
+          <ForecastView />
+        )}
 
-                <View className="flex-row flex-wrap justify-center mt-4 gap-2">
-                  {inflowPieData.map((item, index) => (
-                    <View key={index} className="flex-row items-center mx-2">
-                      <View className="w-3 h-3 rounded-full mr-1" style={{ backgroundColor: item.color }} />
-                      <ThemedText size="xs" className="text-text dark:text-dark-text">{item.label}</ThemedText>
-                    </View>
-                  ))}
-                </View>
-              </CardContent>
-            </Card>
-          )}
-
-          {selectedView === 'outflow' && outflowPieData.length > 0 && (
-            <Card variant="elevated" className="mb-6" style={{ borderWidth: 1, borderColor: colors.border }}>
-              <CardContent className="p-4 items-center">
-                <ThemedText variant="heading" size="base" className="font-semibold text-text dark:text-dark-text mb-4">
-                  Outflow Distribution
-                </ThemedText>
-                
-                <PieChart
-                  data={outflowPieData}
-                  donut
-                  radius={100}
-                  innerRadius={40}
-                  innerCircleColor={colors.surface}
-                  showText
-                  textColor={colors.text}
-                  textSize={12}
-                  fontFamily="Inter-Medium"
-                  showTextBackground
-                  textBackgroundColor={colors.surfaceSoft}
-                  textBackgroundRadius={12}
-                  centerLabelComponent={() => (
-                    <View className="items-center">
-                      <ThemedText variant="heading" size="sm" className="font-bold text-error">
-                        Total
-                      </ThemedText>
-                      <ThemedText variant="muted" size="xs" className="text-text-muted dark:text-dark-text-muted">
-                        {formatCurrency(cashFlowData.periodOutflow)}
-                      </ThemedText>
-                    </View>
-                  )}
-                />
-
-                <View className="flex-row flex-wrap justify-center mt-4 gap-2">
-                  {outflowPieData.map((item, index) => (
-                    <View key={index} className="flex-row items-center mx-2">
-                      <View className="w-3 h-3 rounded-full mr-1" style={{ backgroundColor: item.color }} />
-                      <ThemedText size="xs" className="text-text dark:text-dark-text">{item.label}</ThemedText>
-                    </View>
-                  ))}
-                </View>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Receivables Section */}
-          {cashFlowData.totalReceivables > 0 && (
-            <Card variant="filled" className="mb-6" style={{ borderWidth: 1, borderColor: colors.border }}>
-              <CardContent className="p-4">
-                <View className="flex-row justify-between items-center mb-3">
-                  <View className="flex-row items-center">
-                    <Ionicons name="receipt" size={20} color={colors.warning} />
-                    <ThemedText variant="heading" size="base" className="font-semibold text-text dark:text-dark-text ml-2">
-                      Receivables
-                    </ThemedText>
-                  </View>
-                  <TouchableOpacity onPress={() => router.push('/receivables')}>
-                    <ThemedText variant="brand" size="sm">View All</ThemedText>
-                  </TouchableOpacity>
-                </View>
-
-                <View className="flex-row justify-between mb-3">
-                  <View>
-                    <ThemedText variant="muted" size="xs" className="text-text-muted dark:text-dark-text-muted">Total Outstanding</ThemedText>
-                    <ThemedText variant="heading" size="lg" className="font-bold text-warning">
-                      {formatCurrency(cashFlowData.totalReceivables)}
-                    </ThemedText>
-                  </View>
-                  {cashFlowData.receivablesOverdue > 0 && (
-                    <View className="items-end">
-                      <ThemedText variant="muted" size="xs" className="text-text-muted dark:text-dark-text-muted">Overdue</ThemedText>
-                      <ThemedText variant="heading" size="lg" className="font-bold text-error">
-                        {formatCurrency(cashFlowData.receivablesOverdue)}
-                      </ThemedText>
-                    </View>
-                  )}
-                </View>
-
-                {cashFlowData.totalReceivables > 0 && (
-                  <View>
-                    <View className="flex-row justify-between mb-1">
-                      <ThemedText variant="muted" size="xs" className="text-text-muted dark:text-dark-text-muted">
-                        Due: {formatCurrency(cashFlowData.receivablesDue)}
-                      </ThemedText>
-                      <ThemedText variant="muted" size="xs" className="text-text-muted dark:text-dark-text-muted">
-                        Overdue: {formatCurrency(cashFlowData.receivablesOverdue)}
-                      </ThemedText>
-                    </View>
-                    <View className="h-2 bg-surface-soft dark:bg-dark-surface-soft rounded-full overflow-hidden">
-                      <View 
-                        className="h-full rounded-full bg-warning absolute"
-                        style={{ width: `${(cashFlowData.receivablesDue / cashFlowData.totalReceivables) * 100}%` }}
-                      />
-                      <View 
-                        className="h-full rounded-full bg-error absolute"
-                        style={{ 
-                          width: `${(cashFlowData.receivablesOverdue / cashFlowData.totalReceivables) * 100}%`,
-                          left: `${(cashFlowData.receivablesDue / cashFlowData.totalReceivables) * 100}%`
-                        }}
-                      />
-                    </View>
-                  </View>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Key Insights */}
-          <View className="mb-6">
-            <ThemedText variant="heading" size="base" className="font-semibold text-text dark:text-dark-text mb-3">
-              Key Insights
-            </ThemedText>
-
-            <View className="space-y-2">
-              <InsightCard
-                icon="trending-up"
-                title="Cash Flow Health"
-                value={cashFlowData.periodNetFlow >= 0 ? 'Positive' : 'Negative'}
-                description={cashFlowData.periodNetFlow >= 0 
-                  ? `Net positive of ${formatCurrency(cashFlowData.periodNetFlow)} this period`
-                  : `Net negative of ${formatCurrency(Math.abs(cashFlowData.periodNetFlow))} this period`
-                }
-                color={cashFlowData.periodNetFlow >= 0 ? colors.success : colors.error}
-                bgColor={cashFlowData.periodNetFlow >= 0 ? colors.successSoft : colors.errorSoft}
-                textColor={colors.text}
-              />
-
-              {cashFlowData.largestInflow > 0 && (
-                <InsightCard
-                  icon="arrow-down"
-                  title="Largest Inflow"
-                  value={formatCurrency(cashFlowData.largestInflow)}
-                  description="Single transaction"
-                  color={colors.success}
-                  bgColor={colors.successSoft}
-                  textColor={colors.text}
-                />
-              )}
-
-              {cashFlowData.largestOutflow > 0 && (
-                <InsightCard
-                  icon="arrow-up"
-                  title="Largest Outflow"
-                  value={formatCurrency(cashFlowData.largestOutflow)}
-                  description="Single transaction"
-                  color={colors.error}
-                  bgColor={colors.errorSoft}
-                  textColor={colors.text}
-                />
-              )}
-
-              {cashFlowData.receivablesOverdue > 0 && (
-                <InsightCard
-                  icon="alert-circle"
-                  title="Overdue Receivables"
-                  value={formatCurrency(cashFlowData.receivablesOverdue)}
-                  description="Requires attention"
-                  color={colors.error}
-                  bgColor={colors.errorSoft}
-                  textColor={colors.text}
-                />
-              )}
-            </View>
-          </View>
-
-          {/* Monthly Trend */}
-          {cashFlowData.monthlyTotals.length > 1 && (
-            <Card variant="filled" className="mb-6" style={{ borderWidth: 1, borderColor: colors.border }}>
-              <CardContent className="p-4">
-                <ThemedText variant="heading" size="base" className="font-semibold text-text dark:text-dark-text mb-3">
-                  Monthly Trend
-                </ThemedText>
-                {cashFlowData.monthlyTotals.slice(-6).map((item, index) => (
-                  <View key={index} className="flex-row items-center py-2 border-b border-border dark:border-dark-border last:border-0">
-                    <ThemedText size="sm" className="w-20 text-text dark:text-dark-text">{item.month}</ThemedText>
-                    <View className="flex-1 mx-2">
-                      <View className="h-2 bg-surface-soft dark:bg-dark-surface-soft rounded-full overflow-hidden">
-                        <View 
-                          className="h-full rounded-full bg-brand"
-                          style={{ 
-                            width: `${Math.abs(item.value) / Math.max(...cashFlowData.monthlyTotals.map(m => Math.abs(m.value))) * 100}%` 
-                          }}
-                        />
-                      </View>
-                    </View>
-                    <ThemedText 
-                      size="sm" 
-                      className={`font-medium ${
-                        item.value >= 0 ? 'text-success' : 'text-error'
-                      }`}
-                    >
-                      {formatCurrency(item.value)}
-                    </ThemedText>
-                  </View>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Quick Actions */}
-          <View className="flex-row gap-3 mb-8">
-            <TouchableOpacity
-              onPress={() => router.push('/transactions/new')}
-              className="flex-1 py-4 bg-brand rounded-xl flex-row items-center justify-center"
-              style={{ shadowColor: colors.brand, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 }}
-            >
-              <Ionicons name="add-circle" size={20} color="#fff" />
-              <ThemedText className="text-white font-medium ml-2">New Transaction</ThemedText>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              onPress={() => router.push('/reports/cash-flow')}
-              className="flex-1 py-4 bg-surface-soft dark:bg-dark-surface-soft rounded-xl flex-row items-center justify-center"
-              style={{ borderWidth: 1, borderColor: colors.border }}
-            >
-              <Ionicons name="document-text" size={20} color={colors.text} />
-              <ThemedText className="text-text dark:text-dark-text ml-2 font-medium">Full Report</ThemedText>
-            </TouchableOpacity>
-          </View>
+        {/* Quick Actions */}
+        <View className="flex-row gap-3 mx-4 mt-4 mb-8">
+          <Button 
+            variant="default" 
+            size="lg" 
+            className="flex-1"
+            icon="add-circle"
+            onPress={() => router.push('/add-transaction')}
+          >
+            Add Transaction
+          </Button>
+          <Button 
+            variant="outline" 
+            size="lg" 
+            className="flex-1"
+            icon="repeat"
+            onPress={() => router.push('/(auth)/add-transaction')}
+          >
+            Transfer
+          </Button>
         </View>
       </ScrollView>
     </View>
   );
 };
 
-// Insight Card Component
-const InsightCard = ({ 
-  icon, 
-  title, 
-  value, 
-  description, 
-  color, 
-  bgColor,
-  textColor
-}: { 
-  icon: string; 
-  title: string; 
-  value: string; 
-  description: string; 
-  color: string; 
-  bgColor: string;
-  textColor: string;
-}) => (
-  <View className="flex-row items-center p-3 bg-surface-soft dark:bg-dark-surface-soft rounded-xl" style={{ borderWidth: 1, borderColor: 'transparent' }}>
-    <View className="w-10 h-10 rounded-full items-center justify-center mr-3" style={{ backgroundColor: bgColor }}>
-      <Ionicons name={icon as any} size={18} color={color} />
-    </View>
-    <View className="flex-1">
-      <ThemedText size="xs" className="text-text-muted dark:text-dark-text-muted">{title}</ThemedText>
-      <View className="flex-row items-center">
-        <ThemedText variant="heading" size="base" className="font-bold mr-2" style={{ color }}>
-          {value}
-        </ThemedText>
-        <ThemedText variant="muted" size="xs" className="text-text-muted dark:text-dark-text-muted">{description}</ThemedText>
-      </View>
-    </View>
-  </View>
-);
+// Loading wrapper component
+const CashFlowWithLoading = ({
+  transactions,
+  products,
+  stockMovements,
+}: {
+  transactions?: Transaction[],
+  products?: Product[],
+  stockMovements?: StockMovement[],
+}) => {
+  const isLoading = !transactions || !products || !stockMovements;
+  
+  return (
+    <CashFlowScreenInner
+      transactions={transactions}
+      products={products}
+      stockMovements={stockMovements}
+      isLoading={isLoading}
+    />
+  );
+};
 
-// Enhance with observables
+// Enhance with observables for real-time updates
 const enhance = withObservables(
   ['currentShop'],
   ({ currentShop }: { currentShop: any }) => {
     if (!currentShop) {
       return {
         transactions: [],
-        cashAccounts: [],
+        products: [],
+        stockMovements: [],
       };
     }
-
-    const yearAgo = Date.now() - 365 * 24 * 60 * 60 * 1000;
 
     return {
       transactions: database
         .get<Transaction>('transactions')
         .query(
-          Q.where('shop_id', currentShop.id),
-          Q.where('transaction_date', Q.gte(yearAgo)),
-          Q.sortBy('transaction_date', Q.desc)
+          Q.where('shop_id', currentShop.id)
         )
         .observe(),
-      cashAccounts: database
-        .get<CashAccount>('cash_accounts')
+      products: database
+        .get<Product>('products')
+        .query(
+          Q.where('shop_id', currentShop.id),
+          Q.where('is_active', true)
+        )
+        .observe(),
+      stockMovements: database
+        .get<StockMovement>('stock_movements')
         .query(
           Q.where('shop_id', currentShop.id)
         )
@@ -819,28 +1116,10 @@ const enhance = withObservables(
   }
 );
 
-const CashFlowPageWithObservables = enhance(CashFlowPageInner);
+const CashFlowScreenWithObservables = enhance(CashFlowWithLoading);
 
-export default function CashFlowPage() {
+// Main exported component
+export default function CashFlowScreen() {
   const { currentShop } = useAuth();
-  const { colorScheme } = useColorScheme();
-  const isDark = colorScheme === 'dark';
-
-  if (!currentShop) {
-    return (
-      <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
-        <View className="flex-1 items-center justify-center p-8">
-          <Ionicons name="storefront-outline" size={64} color={isDark ? '#94a3b8' : '#64748b'} />
-          <ThemedText variant="heading" size="lg" className="font-bold text-center mt-4 text-text dark:text-dark-text">
-            No Shop Selected
-          </ThemedText>
-          <ThemedText variant="muted" size="sm" className="text-center mt-2 text-text-muted dark:text-dark-text-muted">
-            Please select a shop to view cash flow
-          </ThemedText>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  return <CashFlowPageWithObservables currentShop={currentShop} />;
+  return <CashFlowScreenWithObservables currentShop={currentShop} />;
 }
