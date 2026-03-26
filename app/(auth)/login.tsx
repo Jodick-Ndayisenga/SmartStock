@@ -148,8 +148,9 @@ export default function LoginScreen() {
   };
 
   const handleForgotPassword = () => {
-    setIsForgotModalVisible(true);
-    setResetEmail('');
+    //setIsForgotModalVisible(true);
+    //setResetEmail('');
+    router.push('/forgot-password');
   };
 
   const submitResetRequest = () => {
@@ -227,10 +228,10 @@ export default function LoginScreen() {
                 animate={{ opacity: 1, translateY: 0 }}
                 transition={{ delay: 200 }}
                 className={`text-4xl font-bold mb-2 ${
-                  isDark ? 'text-dark-text' : 'text-text'
+                  isDark ? 'text-dark-brand' : 'text-brand'
                 }`}
               >
-                Welcome Back
+                SMARTSTOCK
               </MotiText>
 
               <MotiText

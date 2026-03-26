@@ -3,6 +3,7 @@ import React from 'react';
 import { Text, TextProps } from 'react-native';
 import { cn } from '../../lib/utils';
 
+
 // Extended text variants
 type ThemedTextVariant =
   | 'default'

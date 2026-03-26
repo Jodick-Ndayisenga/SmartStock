@@ -31,6 +31,7 @@ interface InputProps {
   showRequiredIndicator?: boolean;
   containerClassName?: string;
   placeholderTextColor?: string;
+  maxLength?: number;
 }
 
 export const Input = ({
@@ -58,6 +59,7 @@ export const Input = ({
   iconColor,
   showRequiredIndicator = false,
   containerClassName = '',
+  maxLength = 1000
   
 }: InputProps) => {
   const { colorScheme } = useColorScheme();
@@ -141,6 +143,7 @@ export const Input = ({
           numberOfLines={numberOfLines}
           autoFocus={autoFocus}
           readOnly={readOnly}
+          maxLength={maxLength}
           className={cn(
             'border border-border dark:border-dark-border rounded-base px-4 py-3 text-text text-base dark:text-dark-text',
             'bg-surface-soft dark:bg-dark-surface-soft',

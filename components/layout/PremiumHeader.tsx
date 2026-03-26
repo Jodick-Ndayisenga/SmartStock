@@ -320,7 +320,7 @@ export default function PremiumHeader({
           {/* Custom Subtitle */}
           {!isDashboard  && subtitle && (
             <View className="mt-3">
-              <Text className="text-sm font-inter-medium text-text-soft dark:text-dark-text-soft">
+              <Text className="text-sm font-inter-medium text-dark-text-soft">
                 {subtitle}
               </Text>
             </View>

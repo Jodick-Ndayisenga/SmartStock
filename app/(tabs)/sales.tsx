@@ -139,6 +139,7 @@ function SalesScreen({ products, customers }: SalesScreenProps) {
     clearCart,
     onSuccess: handleSuccessfulSale,
     onError: handleSaleError,
+    setCart,
   });
 
   // Derived values
@@ -316,7 +317,7 @@ function SalesScreen({ products, customers }: SalesScreenProps) {
                   products={products}
                   onUpdateQuantity={updateCartQuantity}
                   onRemoveItem={removeFromCart}
-                  onClearCart={clearCart}
+                  onClearCart={clearCart }
                   formatUnitWithQuantity={formatUnitWithQuantity}
                   getProductStockStatus={getProductStockStatus}
                 />

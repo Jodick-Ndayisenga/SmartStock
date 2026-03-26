@@ -4,25 +4,30 @@ import { ThemedText } from "@/components/ui/ThemedText";
 import { useAuth } from "@/context/AuthContext";
 import database from "@/database";
 import Transaction from "@/database/models/Transaction";
+import { AccountTransaction } from "@/database/models/AccountTransaction";
 import { calculateTrend, formatCurrency } from "@/utils/dashboardUtils";
 import { Ionicons } from "@expo/vector-icons";
 import { Q } from "@nozbe/watermelondb";
 import { withObservables } from '@nozbe/watermelondb/react';
 import { LinearGradient } from "expo-linear-gradient";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { TouchableOpacity, View } from "react-native";
 import { BaseWidget } from "./BaseWidget";
 import { Product } from "@/database/models/Product";
 import { useColorScheme } from 'nativewind';
+import * as Haptics from 'expo-haptics';
 
 interface TodayData {
   sales: number;
   yesterdaySales: number;
   transactionCount: number;
   averageValue: number;
-  topCategory: string;
-  profitMargin: number;
   totalProducts: number;
+  cashSales: number;
+  creditSales: number;
+  pendingCredit: number;
+  expenses: number;
+  netCashFlow: number;
 }
 
 interface TodayPerformanceWidgetProps {
@@ -30,6 +35,7 @@ interface TodayPerformanceWidgetProps {
   // Observable props
   todayTransactions?: Transaction[];
   yesterdayTransactions?: Transaction[];
+  todayAccountTransactions?: AccountTransaction[];
   products?: Product[];
 }
 
@@ -40,9 +46,9 @@ const LoadingComponent = () => {
   
   return (
     <View className="items-center justify-center py-8">
-      <View className="flex-row items-center">
-        <View className={`w-12 h-12 rounded-full ${isDark ? 'bg-dark-surface-soft' : 'bg-surface-soft'} mr-2 animate-pulse`} />
-        <View className={`w-12 h-12 rounded-full ${isDark ? 'bg-dark-surface-soft' : 'bg-surface-soft'} mr-2 animate-pulse`} />
+      <View className="flex-row items-center gap-2">
+        <View className={`w-12 h-12 rounded-full ${isDark ? 'bg-dark-surface-soft' : 'bg-surface-soft'} animate-pulse`} />
+        <View className={`w-12 h-12 rounded-full ${isDark ? 'bg-dark-surface-soft' : 'bg-surface-soft'} animate-pulse`} />
         <View className={`w-12 h-12 rounded-full ${isDark ? 'bg-dark-surface-soft' : 'bg-surface-soft'} animate-pulse`} />
       </View>
       <ThemedText variant="muted" size="sm" className="mt-4">
@@ -78,6 +84,7 @@ const TodayPerformanceWidgetInner = ({
   className,
   todayTransactions = [],
   yesterdayTransactions = [],
+  todayAccountTransactions = [],
   products = []
 }: TodayPerformanceWidgetProps) => {
   const { currentShop } = useAuth();
@@ -91,14 +98,14 @@ const TodayPerformanceWidgetInner = ({
     const currentYear = new Date().getFullYear();
     if (currentYear > new Date().getFullYear() + 5 || currentYear < 2020) {
       setSystemTimeWarning(true);
-      console.warn(`Warning: System date (${new Date().toISOString()}) appears incorrect`);
     } else {
       setSystemTimeWarning(false);
     }
   }, []);
 
   // Calculate metrics from observable data
-  const calculateMetrics = (): TodayData => {
+  const data = useMemo((): TodayData => {
+    // Get today's sales from transactions
     const todaySales = todayTransactions.reduce(
       (sum, t) => sum + t.totalAmount,
       0,
@@ -108,31 +115,44 @@ const TodayPerformanceWidgetInner = ({
       0,
     );
 
-    const totalCost = products.reduce((sum, p) => sum + ((p.stockQuantity || 0) * p.costPricePerBase), 0);
-    const totalRevenue = todayTransactions.reduce((sum, t) => sum + t.totalAmount, 0);
-    const profitMargin = totalRevenue > 0 ? ((totalRevenue - totalCost) / totalRevenue) * 100 : 0;
+    // Calculate cash vs credit sales from account transactions
+    const cashSales = todayAccountTransactions
+      .filter(at => at.type === 'income' && at.category === 'sales')
+      .reduce((sum, at) => sum + at.amount, 0);
+    
+    const creditSales = todayAccountTransactions
+      .filter(at => at.type === 'receivable')
+      .reduce((sum, at) => sum + at.amount, 0);
+    
+    const pendingCredit = todayAccountTransactions
+      .filter(at => at.type === 'receivable')
+      .reduce((sum, at) => sum + at.amount, 0);
+    
+    const expenses = todayAccountTransactions
+      .filter(at => at.type === 'expense' || at.type === 'withdrawal')
+      .reduce((sum, at) => sum + Math.abs(at.amount), 0);
+    
+    const netCashFlow = todaySales - expenses;
 
     return {
       sales: todaySales,
       yesterdaySales,
       transactionCount: todayTransactions.length,
-      averageValue:
-        todayTransactions.length > 0
-          ? todaySales / todayTransactions.length
-          : 0,
-      topCategory: "General", // You can enhance this later
-      profitMargin,
+      averageValue: todayTransactions.length > 0 ? todaySales / todayTransactions.length : 0,
       totalProducts: products.length,
+      cashSales,
+      creditSales,
+      pendingCredit,
+      expenses,
+      netCashFlow,
     };
-  };
+  }, [todayTransactions, yesterdayTransactions, todayAccountTransactions, products]);
 
-  const data = calculateMetrics();
   const hasSales = data.sales > 0;
   const hasProducts = data.totalProducts > 0;
   const isBrandNewAccount = data.totalProducts === 0 && data.transactionCount === 0;
 
   const trend = () => {
-    // Don't show trend if no sales
     if (data.sales === 0 && data.yesterdaySales === 0) {
       return {
         icon: "remove",
@@ -182,7 +202,6 @@ const TodayPerformanceWidgetInner = ({
 
   const trendData = trend();
 
-  // If brand new account, show zeros but keep the same layout
   return (
     <LinearGradient
       colors={isDark 
@@ -191,158 +210,153 @@ const TodayPerformanceWidgetInner = ({
       }
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
-      className="rounded-xl overflow-hidden p-3"
+      className="rounded-xl overflow-hidden"
     >
-      {/* System Time Warning */}
-      {systemTimeWarning && (
-        <View className="mb-3 p-2 bg-warning/20 rounded-lg">
-          <View className="flex-row items-center">
-            <Ionicons name="warning" size={16} color="#f59e0b" />
-            <ThemedText variant="warning" size="xs" className="ml-1 flex-1">
-              Your device date appears to be incorrect. Please check your system settings.
-            </ThemedText>
+      <View className="p-4">
+        {/* System Time Warning */}
+        {systemTimeWarning && (
+          <View className="mb-3 p-2 bg-warning/20 rounded-lg">
+            <View className="flex-row items-center">
+              <Ionicons name="warning" size={16} color="#f59e0b" />
+              <ThemedText variant="warning" size="xs" className="ml-1 flex-1">
+                Your device date appears to be incorrect. Please check your system settings.
+              </ThemedText>
+            </View>
           </View>
-        </View>
-      )}
-
-      {/* Trend Badge - Always show, even if zero */}
-      <View className="flex-row justify-between items-center mb-4">
-        <View className={`px-3 py-1 rounded-full ${trendData.bgColor} overflow-hidden`}>
-          <View className="flex-row items-center">
-            <Ionicons
-              name={trendData.icon as any}
-              size={14}
-              color={trendData.color}
-            />
-            <ThemedText
-              style={{ color: trendData.color }}
-              size="xs"
-              className="ml-1 font-medium"
-            >
-              {trendData.text}
-            </ThemedText>
-          </View>
-        </View>
-
-        {/* Quick action for new sales - only if has products but no sales */}
-        {hasProducts && !hasSales && (
-          <TouchableOpacity
-            onPress={() => router.push('/(tabs)/sales')}
-            className="flex-row items-center"
-          >
-            <Ionicons name="add-circle" size={18} color="#0ea5e9" />
-            <ThemedText variant="brand" size="xs" className="ml-1">
-              New Sale
-            </ThemedText>
-          </TouchableOpacity>
         )}
-      </View>
 
-      {/* Main Stats - Always show with proper formatting */}
-      <View className="flex-row items-center justify-between">
-        <View className="flex-1">
-          <ThemedText variant="muted" size="sm">
-            Total Sales
-          </ThemedText>
-          <View className="flex-row items-baseline flex-wrap">
-            <ThemedText
-              variant="display"
-              size="4xl"
-              className={`font-bold ${hasSales ? 'text-brand' : 'text-muted'}`}
+        {/* Header with Trend Badge */}
+        <View className="flex-row justify-between items-center mb-4">
+          <View className={`px-3 py-1 rounded-full ${trendData.bgColor} overflow-hidden`}>
+            <View className="flex-row items-center">
+              <Ionicons
+                name={trendData.icon as any}
+                size={14}
+                color={trendData.color}
+              />
+              <ThemedText
+                style={{ color: trendData.color }}
+                size="xs"
+                className="ml-1 font-medium"
+              >
+                {trendData.text}
+              </ThemedText>
+            </View>
+          </View>
+
+          {/* Quick action for new sales */}
+          {hasProducts && !hasSales && (
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push('/(tabs)/sales');
+              }}
+              className="flex-row items-center"
             >
-              {formatCurrency(data.sales)}
+              <Ionicons name="add-circle" size={18} color="#0ea5e9" />
+              <ThemedText variant="brand" size="xs" className="ml-1">
+                New Sale
+              </ThemedText>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Main Stats */}
+        <View className="flex-row items-center justify-between">
+          <View className="flex-1">
+            <ThemedText variant="muted" size="sm">
+              Today's Sales
             </ThemedText>
-            {data.transactionCount > 0 && (
-              <ThemedText variant="muted" size="xs" className="ml-2">
-                / {data.transactionCount} {data.transactionCount === 1 ? 'sale' : 'sales'}
+            <View className="flex-row items-baseline flex-wrap">
+              <ThemedText
+                variant="display"
+                size="4xl"
+                className={`font-bold ${hasSales ? 'text-brand' : 'text-muted'}`}
+              >
+                {formatCurrency(data.sales)}
+              </ThemedText>
+              {data.transactionCount > 0 && (
+                <ThemedText variant="muted" size="xs" className="ml-2">
+                  / {data.transactionCount} {data.transactionCount === 1 ? 'sale' : 'sales'}
+                </ThemedText>
+              )}
+            </View>
+            {isBrandNewAccount && (
+              <ThemedText variant="muted" size="xs" className="mt-1">
+                Add products to get started
               </ThemedText>
             )}
           </View>
-          {/* Subtle hint for new accounts */}
-          {isBrandNewAccount && (
-            <ThemedText variant="muted" size="xs" className="mt-1">
-              Add products to get started
-            </ThemedText>
-          )}
+          
+          {/* Icon Circle */}
+          <View className={`w-16 h-16 rounded-full ${
+            hasSales 
+              ? 'bg-brand/20' 
+              : isDark ? 'bg-dark-surface-soft' : 'bg-surface-soft'
+          } items-center justify-center`}>
+            <Ionicons 
+              name={hasSales ? "cart" : "cart-outline"} 
+              size={32} 
+              color={hasSales ? "#0ea5e9" : "#64748b"} 
+            />
+          </View>
         </View>
-        
-        {/* Icon Circle */}
-        <View className={`w-16 h-16 rounded-full ${
-          hasSales 
-            ? 'bg-brand/20' 
-            : isDark ? 'bg-dark-surface-soft' : 'bg-surface-soft'
-        } items-center justify-center`}>
-          <Ionicons 
-            name={hasSales ? "cart" : "cart-outline"} 
-            size={32} 
-            color={hasSales ? "#0ea5e9" : "#64748b"} 
-          />
-        </View>
+
+        {/* Additional Metrics Row */}
+        {(hasSales || hasProducts) && (
+          <View className="flex-row justify-between mt-4 pt-4 border-t border-border dark:border-dark-border">
+            <View className="flex-1">
+              <ThemedText variant="muted" size="xs">
+                Avg. per transaction
+              </ThemedText>
+              <ThemedText
+                variant="label"
+                size="base"
+                className={`font-semibold ${!hasSales && 'text-muted'}`}
+              >
+                {hasSales ? formatCurrency(data.averageValue) : '---'}
+              </ThemedText>
+            </View>
+            
+            <View className="flex-1 items-center">
+              <ThemedText variant="muted" size="xs">
+                Products
+              </ThemedText>
+              <ThemedText
+                variant="label"
+                size="base"
+                className="font-semibold text-center"
+              >
+                {data.totalProducts}
+              </ThemedText>
+            </View>
+            
+            <View className="flex-1 items-end">
+              <ThemedText variant="muted" size="xs">
+                Net Cash Flow
+              </ThemedText>
+              <ThemedText
+                variant="label"
+                size="base"
+                className={`font-semibold ${hasSales && data.netCashFlow >= 0 ? 'text-success' : hasSales && data.netCashFlow < 0 ? 'text-error' : 'text-muted'}`}
+              >
+                {hasSales ? `${data.netCashFlow >= 0 ? '+' : '-'}${formatCurrency(Math.abs(data.netCashFlow))}` : '---'}
+              </ThemedText>
+            </View>
+          </View>
+        )}
+        {/* Empty State for New Accounts */}
+        {isBrandNewAccount && (
+          <View className="mt-4 pt-3 border-t border-border dark:border-dark-border">
+            <View className="flex-row items-center justify-center">
+              <Ionicons name="cube-outline" size={16} color="#64748b" />
+              <ThemedText variant="muted" size="xs" className="ml-1">
+                Add your first products to start tracking sales
+              </ThemedText>
+            </View>
+          </View>
+        )}
       </View>
-
-      {/* Additional Metrics - Show if has sales OR if has products (to show structure) */}
-      {(hasSales || hasProducts) && (
-        <View className="flex-row justify-between mt-4 pt-4 border-t border-border dark:border-dark-border">
-          <View className="flex-1">
-            <ThemedText variant="muted" size="xs">
-              Avg. per transaction
-            </ThemedText>
-            <ThemedText
-              variant="label"
-              size="base"
-              className={`font-semibold ${!hasSales && 'text-muted'}`}
-            >
-              {hasSales ? formatCurrency(data.averageValue) : '---'}
-            </ThemedText>
-          </View>
-          
-          <View className="flex-1 items-center">
-            <ThemedText variant="muted" size="xs">
-              Products
-            </ThemedText>
-            <ThemedText
-              variant="label"
-              size="base"
-              className="font-semibold text-center"
-            >
-              {data.totalProducts}
-            </ThemedText>
-          </View>
-          
-          <View className="flex-1 items-end">
-            <ThemedText variant="muted" size="xs">
-              Margin
-            </ThemedText>
-            <ThemedText
-              variant="label"
-              size="base"
-              className={`font-semibold ${
-                !hasSales 
-                  ? 'text-muted'
-                  : data.profitMargin > 20 
-                  ? 'text-success' 
-                  : data.profitMargin > 10 
-                  ? 'text-warning' 
-                  : 'text-error'
-              }`}
-            >
-              {hasSales ? `${data.profitMargin.toFixed(1)}%` : '---'}
-            </ThemedText>
-          </View>
-        </View>
-      )}
-
-      {/* Subtle product count for new accounts */}
-      {isBrandNewAccount && (
-        <View className="mt-4 pt-3 border-t border-border dark:border-dark-border">
-          <View className="flex-row items-center justify-center">
-            <Ionicons name="cube-outline" size={16} color="#64748b" />
-            <ThemedText variant="muted" size="xs" className="ml-1">
-              Add your first products to start tracking sales
-            </ThemedText>
-          </View>
-        </View>
-      )}
     </LinearGradient>
   );
 };
@@ -355,6 +369,7 @@ const enhance = withObservables(
       return {
         todayTransactions: [],
         yesterdayTransactions: [],
+        todayAccountTransactions: [],
         products: [],
       };
     }
@@ -383,12 +398,20 @@ const enhance = withObservables(
       23, 59, 59, 999
     ));
 
+    const endOfDay = new Date(Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      23, 59, 59, 999
+    ));
+
     return {
       todayTransactions: database
         .get<Transaction>("transactions")
         .query(
           Q.where("shop_id", currentShop.id),
           Q.where("transaction_date", Q.gte(startOfDay.getTime())),
+          Q.where("transaction_date", Q.lte(endOfDay.getTime())),
         )
         .observe(),
       yesterdayTransactions: database
@@ -399,11 +422,19 @@ const enhance = withObservables(
           Q.where("transaction_date", Q.lte(endOfYesterday.getTime())),
         )
         .observe(),
+      todayAccountTransactions: database
+        .get<AccountTransaction>("account_transactions")
+        .query(
+          Q.where("shop_id", currentShop.id),
+          Q.where("transaction_date", Q.gte(startOfDay.getTime())),
+          Q.where("transaction_date", Q.lte(endOfDay.getTime())),
+        )
+        .observe(),
       products: database
         .get<Product>("products")
         .query(
           Q.where("shop_id", currentShop.id),
-          Q.where('is_active', true) // Only fetch active products
+          Q.where('is_active', true)
         )
         .observe(),
     };
@@ -418,13 +449,9 @@ export function TodayPerformanceWidget({ className }: { className?: string }) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
 
-  // This is a wrapper that uses BaseWidget for loading/error states
-  // but delegates the actual rendering to the observable-enhanced inner component
+  // This wrapper uses BaseWidget for loading/error states
   const fetchData = async (): Promise<{ hasData: boolean }> => {
     if (!currentShop) throw new Error("No shop selected");
-    
-    // We don't actually need to fetch anything here since the observables handle it
-    // This just tells BaseWidget we have data
     return { hasData: true };
   };
 
@@ -432,7 +459,7 @@ export function TodayPerformanceWidget({ className }: { className?: string }) {
     <BaseWidget<{ hasData: boolean }>
       title="Today's Performance"
       fetchData={fetchData}
-      refreshInterval={300000} // 5 minutes (kept for compatibility)
+      refreshInterval={300000}
       loadingComponent={<LoadingComponent />}
       errorComponent={(error, retry) => (
         <ErrorComponent error={error} retry={retry} isDark={isDark} />
@@ -441,7 +468,7 @@ export function TodayPerformanceWidget({ className }: { className?: string }) {
       action={{
         label: "View All",
         icon: "arrow-forward",
-        onPress: () => router.push("/sales"),
+        onPress: () => router.push(`/shops/${currentShop?.id}/transactions`),
       }}
       className={className}
     >

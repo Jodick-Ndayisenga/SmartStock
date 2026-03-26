@@ -81,6 +81,9 @@ export class Product extends BaseModel {
   // stock quantity (ALWAYS in base units)
   @field('stock_quantity') stockQuantity?: number;
 
+  // adding last notified at
+  @field('last_notified_at') lastNotifiedAt!: number;
+
   // Default values
   prepareCreate() {
     super.setDefaults();

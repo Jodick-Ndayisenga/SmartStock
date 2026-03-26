@@ -11,6 +11,7 @@ import "@/app/global.css";
 import { GluestackUIProvider } from "@/components/ui/gluestack-ui-provider";
 import { ROUTES } from "@/constants/routes";
 import { allowedProtectedPrefixes } from "@/constants/allowedPaths";
+import { useStockNotifications } from '@/hooks/useStockNotifications';
 
 function AppContent() {
   const { 
@@ -25,6 +26,8 @@ function AppContent() {
   
   const router = useRouter();
   const segments = useSegments();
+
+    useStockNotifications();
   
   const [initialCheckDone, setInitialCheckDone] = useState(false);
   const [navigationInProgress, setNavigationInProgress] = useState(false);
@@ -72,14 +75,14 @@ function AppContent() {
         const currentPath = segments.join('/');
         
         const isInAuthGroup = currentRouteGroup === '(auth)';
-        const isInTabsGroup = currentRouteGroup === '(tabs)';
+        //const isInTabsGroup = currentRouteGroup === '(tabs)';
         
         // Check if current path matches any allowed prefix
         const isAllowedRoute = allowedProtectedPrefixes.some(prefix => 
           currentPath === prefix || currentPath.startsWith(prefix + '/') || currentPath.startsWith(prefix)
         );
 
-        console.log("📍 Nav Check:", { currentPath, isInAuthGroup, isAllowedRoute });
+        //console.log("📍 Nav Check:", { currentPath, isInAuthGroup, isAllowedRoute });
 
         // --- CASE 1: First time user ---
         if (isFirstTime && !user) {
@@ -121,10 +124,10 @@ function AppContent() {
             currentPath === '/';
 
           if (shouldRedirectToHome) {
-            console.log("🟢 Redirecting to Tabs Home");
+            //console.log("🟢 Redirecting to Tabs Home");
             router.replace(ROUTES.PROTECTED.TABS);
           } else {
-            console.log("✅ Staying on allowed route:", currentPath);
+            //console.log("✅ Staying on allowed route:", currentPath);
           }
           return;
         }
@@ -150,6 +153,8 @@ function AppContent() {
       </View>
     );
   }
+
+
 
   return (
     <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>

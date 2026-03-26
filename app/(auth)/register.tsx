@@ -90,7 +90,7 @@ export default function RegisterScreen() {
     password: '',
     confirmPassword: '',
     countryCode: '+257',
-    theme: 'system',
+    theme: 'dark',
     language: '',
   });
   

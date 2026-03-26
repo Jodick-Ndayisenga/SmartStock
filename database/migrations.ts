@@ -15,6 +15,18 @@ export default schemaMigrations({
         },
       ],
     },
+    {
+      toVersion: 3,
+      steps: [
+        {
+          type: 'add_columns',
+          table: 'products',
+          columns: [
+            { name: 'last_notified_at', type: 'number', isOptional: true },
+          ],
+        },
+      ],
+    }
 
   ],
 })

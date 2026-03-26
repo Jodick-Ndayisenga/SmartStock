@@ -1,16 +1,5 @@
 // app/(tabs)/profile.tsx
-import { Dialog } from '@/components/ui/Dialog';
-import { useAuth } from '@/context/AuthContext';
-import database from '@/database';
-import { User } from '@/database/models/User';
-import { Ionicons } from '@expo/vector-icons';
-import { Q } from '@nozbe/watermelondb';
-import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
-import { useColorScheme } from 'nativewind';
-import React, { useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { useNotification } from '@/context/NotificationContext';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   Alert,
   ScrollView,
@@ -18,148 +7,932 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  Image
+  Image,
+  Animated,
+  Dimensions,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
+  StatusBar,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useColorScheme } from 'nativewind';
+import { useTranslation } from 'react-i18next';
+import * as ImagePicker from 'expo-image-picker';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
+import { BlurView } from 'expo-blur';
+import { MotiView, MotiText } from 'moti';
+import { Pressable } from 'react-native';
 
 // Components
-import PremiumHeader from '@/components/layout/PremiumHeader';
-import { Badge } from '@/components/ui/Badge';
+import { 
+  ThemedText, 
+  HeadingText, 
+  CaptionText,
+  MutedText,
+  SuccessText,
+} from '@/components/ui/ThemedText';
 import { Button } from '@/components/ui/Button';
-import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/Card';
+import { Card, CardContent, CardHeader, CardFooter } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
-import { ThemedText } from '@/components/ui/ThemedText';
+import { Badge } from '@/components/ui/Badge';
+import CustomDialog from '@/components/ui/CustomDialog';
 
+// Language Utilities
+import { LangCode, availableLanguages, getNativeLanguageName } from '@/language/LanguageUtils';
+
+// Context & Database
+import { useAuth } from '@/context/AuthContext';
+import { useNotification } from '@/context/NotificationContext';
+import database from '@/database';
+import { User } from '@/database/models/User';
 import { Setting } from '@/database/models/Setting';
+import { Q } from '@nozbe/watermelondb';
 
-interface ProfileData {
-  displayName: string;
-  email: string;
-  phone: string;
-  role: string;
-  joinDate: string;
-  imageUrl?: string;
-}
+const { width, height } = Dimensions.get('window');
 
-interface AppSettings {
-  language: string;
-  currency: string;
-  darkMode: boolean;
-  backupEnabled: boolean;
-  smsAlerts: boolean;
-  wifiOnlyBackup: boolean;
-  weekStartDay: number;
-}
+// Currency options
+const CURRENCIES = [
+  { code: 'BIF', name: 'Burundi Franc', symbol: '₣', locale: 'fr-BI' },
+  { code: 'USD', name: 'US Dollar', symbol: '$', locale: 'en-US' },
+  { code: 'EUR', name: 'Euro', symbol: '€', locale: 'fr-FR' },
+];
 
+// Animated Header Component
+const AnimatedHeader = ({ scrollY, user, onEditPress }: any) => {
+  const headerHeight = scrollY.interpolate({
+    inputRange: [0, 150],
+    outputRange: [280, 120],
+    extrapolate: 'clamp',
+  });
+
+  const avatarScale = scrollY.interpolate({
+    inputRange: [0, 150],
+    outputRange: [1, 0.7],
+    extrapolate: 'clamp',
+  });
+
+  const titleOpacity = scrollY.interpolate({
+    inputRange: [100, 150],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
+
+  // Safe access to user properties with fallbacks
+  const displayName = user?.displayName || 'User';
+  const imageUrl = user?.imageUrl;
+  const userInitial = displayName?.[0]?.toUpperCase() || 'U';
+
+  return (
+    <Animated.View
+      style={{
+        height: headerHeight,
+        position: 'relative',
+      }}
+    >
+      <LinearGradient
+        colors={['#0ea5e9', '#0284c7']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={{
+          position: 'absolute',
+          width: '100%',
+          height: '100%',
+          borderBottomLeftRadius: 30,
+          borderBottomRightRadius: 30,
+        }}
+      />
+      
+      <Animated.View
+        style={{
+          position: 'absolute',
+          top: 50,
+          left: 20,
+          right: 20,
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          opacity: titleOpacity,
+          zIndex: 10,
+        }}
+      >
+        <MotiText
+          from={{ opacity: 0, translateX: -20 }}
+          animate={{ opacity: 1, translateX: 0 }}
+          transition={{ type: 'timing', duration: 500 }}
+          style={{ fontSize: 24, fontWeight: 'bold', color: '#fff' }}
+        >
+          Profile
+        </MotiText>
+        <Pressable
+          onPress={onEditPress}
+          style={({ pressed }) => ({
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: 'rgba(255,255,255,0.2)',
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: pressed ? 0.7 : 1,
+          })}
+        >
+          <Ionicons name="settings-outline" size={22} color="#fff" />
+        </Pressable>
+      </Animated.View>
+
+      <Animated.View
+        style={{
+          position: 'absolute',
+          bottom: 20,
+          left: 0,
+          right: 0,
+          alignItems: 'center',
+          transform: [{ scale: avatarScale }],
+        }}
+      >
+        <Pressable
+          onPress={onEditPress}
+          style={({ pressed }) => ({
+            position: 'relative',
+            opacity: pressed ? 0.8 : 1,
+          })}
+        >
+          <View className="w-28 h-28 rounded-full border-4 border-white bg-white/20 shadow-2xl overflow-hidden">
+            {imageUrl ? (
+              <Image
+                source={{ uri: imageUrl }}
+                className="w-full h-full"
+                resizeMode="cover"
+              />
+            ) : (
+              <View className="w-full h-full items-center justify-center bg-white/30">
+                <ThemedText 
+                  variant="brand" 
+                  size="3xl" 
+                  weight="bold" 
+                  className="text-white"
+                >
+                  {userInitial}
+                </ThemedText>
+              </View>
+            )}
+          </View>
+          <View className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-white items-center justify-center border-2 border-white shadow-md">
+            <Ionicons name="camera" size={16} color="#0ea5e9" />
+          </View>
+        </Pressable>
+
+        <Animated.View style={{ opacity: titleOpacity }}>
+          <ThemedText
+            variant="heading" 
+            size="xl" 
+            weight="bold" 
+            className="text-white mt-3 text-center"
+          >
+            {displayName}
+          </ThemedText>
+          <View className="flex-row items-center justify-center mt-1">
+            <Badge variant="success" className="bg-white/20">
+              <SuccessText size="xs" className="text-white">
+                Active
+              </SuccessText>
+            </Badge>
+          </View>
+        </Animated.View>
+      </Animated.View>
+    </Animated.View>
+  );
+};
+
+// Stats Card Component with Moti
+const StatsCard = ({ icon, label, value, trend, trendUp }: any) => (
+  <MotiView
+    from={{ opacity: 0, translateY: 30 }}
+    animate={{ opacity: 1, translateY: 0 }}
+    transition={{ type: 'timing', duration: 500, delay: 200 }}
+    className="flex-1 mx-1"
+  >
+    <Card variant="elevated" className="p-4">
+      <View className="flex-row items-center justify-between mb-2">
+        <View className="w-10 h-10 rounded-xl bg-brand/10 items-center justify-center">
+          <Ionicons name={icon} size={20} color="#0ea5e9" />
+        </View>
+        {trend && (
+          <MotiView
+            from={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ type: 'spring', delay: 400 }}
+            className="flex-row items-center"
+          >
+            <Ionicons
+              name={trendUp ? "trending-up" : "trending-down"}
+              size={14}
+              color={trendUp ? "#22c55e" : "#ef4444"}
+            />
+            <ThemedText 
+              variant={trendUp ? "success" : "error"} 
+              size="xs" 
+              weight="medium"
+              className="ml-1"
+            >
+              {trend}%
+            </ThemedText>
+          </MotiView>
+        )}
+      </View>
+      <CaptionText className="mb-1">
+        {label}
+      </CaptionText>
+      <ThemedText size="xl" weight="bold">
+        {typeof value === 'number' ? value.toLocaleString() : value}
+      </ThemedText>
+    </Card>
+  </MotiView>
+);
+
+// Modern Setting Row Component
+const ModernSettingRow = ({ icon, title, subtitle, action, onPress, isLast }: any) => (
+  <MotiView
+    from={{ opacity: 0, translateX: -20 }}
+    animate={{ opacity: 1, translateX: 0 }}
+    transition={{ type: 'timing', duration: 400 }}
+  >
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({
+        opacity: pressed ? 0.7 : 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: 16,
+        borderBottomWidth: !isLast ? 1 : 0,
+        borderBottomColor: '#e2e8f0',
+      })}
+      className={`${!isLast ? 'border-border dark:border-dark-border' : ''}`}
+    >
+      <View className="flex-row items-center flex-1">
+        <LinearGradient
+          colors={['rgba(14,165,233,0.2)', 'rgba(14,165,233,0.05)']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          className="w-12 h-12 rounded-2xl items-center justify-center mr-4"
+        >
+          <Ionicons name={icon} size={22} color="#0ea5e9" />
+        </LinearGradient>
+        <View className="flex-1">
+          <ThemedText variant="default" size="base" weight="semibold">
+            {title}
+          </ThemedText>
+          {subtitle && (
+            <MutedText size="sm" className="mt-0.5">
+              {subtitle}
+            </MutedText>
+          )}
+        </View>
+      </View>
+      {action || (
+        <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
+      )}
+    </Pressable>
+  </MotiView>
+);
+
+// Modern Switch Row
+const ModernSwitchRow = ({ icon, title, subtitle, value, onValueChange, isLast }: any) => (
+  <MotiView
+    from={{ opacity: 0, translateX: 20 }}
+    animate={{ opacity: 1, translateX: 0 }}
+    transition={{ type: 'timing', duration: 400 }}
+  >
+    <View className={`flex-row items-center justify-between py-4 ${!isLast ? 'border-b border-border dark:border-dark-border' : ''}`}>
+      <View className="flex-row items-center flex-1">
+        <LinearGradient
+          colors={['rgba(14,165,233,0.2)', 'rgba(14,165,233,0.05)']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          className="w-12 h-12 rounded-2xl items-center justify-center mr-4"
+        >
+          <Ionicons name={icon} size={22} color="#0ea5e9" />
+        </LinearGradient>
+        <View className="flex-1">
+          <ThemedText variant="default" size="base" weight="semibold">
+            {title}
+          </ThemedText>
+          {subtitle && (
+            <MutedText size="sm" className="mt-0.5">
+              {subtitle}
+            </MutedText>
+          )}
+        </View>
+      </View>
+      <Switch
+        value={value}
+        onValueChange={(val) => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          onValueChange(val);
+        }}
+        trackColor={{ false: '#e2e8f0', true: '#0ea5e9' }}
+        thumbColor={value ? '#ffffff' : '#f8fafc'}
+        ios_backgroundColor="#e2e8f0"
+      />
+    </View>
+  </MotiView>
+);
+
+// User Information Section Component
+const UserInformationSection = ({ user, onUpdate }: any) => {
+  const [displayName, setDisplayName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [isEdited, setIsEdited] = useState(false);
+  const [isEmailEdited, setIsEmailEdited] = useState(false);
+  const [isPhoneEdited, setIsPhoneEdited] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      setDisplayName(user.displayName || '');
+      setEmail(user.email || '');
+      setPhone(user.phone || '');
+    }
+  }, [user]);
+
+  const handleSave = async () => {
+    await onUpdate({ displayName, email, phone });
+    setIsEdited(false);
+    setIsEmailEdited(false);
+    setIsPhoneEdited(false);
+  };
+
+  if (!user) return null;
+
+  return (
+    <Card variant="elevated">
+      <CardHeader 
+        title="User Information" 
+        subtitle="Manage your account details"
+      />
+      <CardContent>
+        {/* Name Row */}
+        <View className="flex-row items-center flex-1 border-b border-border dark:border-dark-border mt-2 relative">
+          <View className="w-10 h-10 rounded-lg bg-brand/10 items-center justify-center mr-3">
+            <Ionicons name="person-outline" size={20} color="#0ea5e9" />
+          </View>
+
+          <View className="flex-1 mt-2 pr-8">
+            <ThemedText variant="label" size="sm" weight="medium">
+              Full Name
+            </ThemedText>
+            <TextInput
+              value={displayName}
+              onChangeText={(text) => {
+                setDisplayName(text);
+                setIsEdited(true);
+              }}
+              placeholder="John Doe"
+              className="border-0 bg-transparent text-text dark:text-dark-text text-base p-0"
+              placeholderTextColor="#94a3b8"
+            />
+          </View>
+
+          {isEdited && (
+            <TouchableOpacity
+              onPress={handleSave}
+              className="absolute right-0 top-6"
+            >
+              <Ionicons name="checkmark-circle" size={22} color="#0ea5e9" />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Email Row */}
+        <View className="flex-row items-center flex-1 border-b border-border dark:border-dark-border mt-2 relative">
+          <View className="w-10 h-10 rounded-lg bg-brand/10 items-center justify-center mr-3">
+            <Ionicons name="mail-outline" size={20} color="#0ea5e9" />
+          </View>
+
+          <View className="flex-1 mt-2 pr-8">
+            <ThemedText variant="label" size="sm" weight="medium">
+              Email
+            </ThemedText>
+            <TextInput
+              value={email}
+              onChangeText={(text) => {
+                setEmail(text);
+                setIsEmailEdited(true);
+              }}
+              placeholder="example@email.com"
+              className="border-0 bg-transparent text-text dark:text-dark-text text-base p-0"
+              placeholderTextColor="#94a3b8"
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+          </View>
+
+          {isEmailEdited && (
+            <TouchableOpacity
+              onPress={handleSave}
+              className="absolute right-0 top-6"
+            >
+              <Ionicons name="checkmark-circle" size={22} color="#0ea5e9" />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Phone Row */}
+        <View className="flex-row items-center flex-1 border-b border-border dark:border-dark-border mt-2 relative">
+          <View className="w-10 h-10 rounded-lg bg-brand/10 items-center justify-center mr-3">
+            <Ionicons name="call-outline" size={20} color="#0ea5e9" />
+          </View>
+
+          <View className="flex-1 mt-2 pr-8">
+            <ThemedText variant="label" size="sm" weight="medium">
+              Phone
+            </ThemedText>
+            <TextInput
+              value={phone}
+              onChangeText={(text) => {
+                setPhone(text);
+                setIsPhoneEdited(true);
+              }}
+              placeholder="+257 00 000 000"
+              className="border-0 bg-transparent text-text dark:text-dark-text text-base p-0"
+              placeholderTextColor="#94a3b8"
+              keyboardType="phone-pad"
+            />
+          </View>
+
+          {isPhoneEdited && (
+            <TouchableOpacity
+              onPress={handleSave}
+              className="absolute right-0 top-6"
+            >
+              <Ionicons name="checkmark-circle" size={22} color="#0ea5e9" />
+            </TouchableOpacity>
+          )}
+        </View>
+      </CardContent>
+
+      <CardFooter>
+        <MutedText size="sm" align="center" className="text-center">
+          This information helps personalize your experience and may be visible to other users in your shop.
+        </MutedText>
+      </CardFooter>
+    </Card>
+  );
+};
+
+// Language Selection Dialog
+const LanguageDialog = ({ visible, onClose, currentLanguage, onSelectLanguage }: any) => {
+  return (
+    <CustomDialog
+      visible={visible}
+      variant="info"
+      title="Select Language"
+      description="Choose your preferred language"
+      icon="language-outline"
+      onClose={onClose}
+    >
+      <View className="gap-2 mt-2">
+        {availableLanguages.map((lang) => (
+          <Pressable
+            key={lang.code}
+            onPress={() => {
+              onSelectLanguage(lang.code);
+              onClose();
+            }}
+            className={`p-4 rounded-xl border ${
+              currentLanguage === lang.code
+                ? 'border-brand bg-brand/10'
+                : 'border-border dark:border-dark-border'
+            }`}
+          >
+            <ThemedText
+              variant={currentLanguage === lang.code ? 'brand' : 'default'}
+              weight={currentLanguage === lang.code ? 'semibold' : 'regular'}
+              size="base"
+            >
+              {lang.nativeName} ({lang.name})
+            </ThemedText>
+          </Pressable>
+        ))}
+      </View>
+    </CustomDialog>
+  );
+};
+
+// Currency Selection Dialog
+const CurrencyDialog = ({ visible, onClose, currentCurrency, onSelectCurrency }: any) => {
+  return (
+    <CustomDialog
+      visible={visible}
+      variant="info"
+      title="Select Currency"
+      description="Choose your primary currency for transactions"
+      icon="cash-outline"
+      onClose={onClose}
+    >
+      <View className="gap-2 mt-2">
+        {CURRENCIES.map((currency) => (
+          <Pressable
+            key={currency.code}
+            onPress={() => {
+              onSelectCurrency(currency.code);
+              onClose();
+            }}
+            className={`p-4 rounded-xl border flex-row justify-between items-center ${
+              currentCurrency === currency.code
+                ? 'border-brand bg-brand/10'
+                : 'border-border dark:border-dark-border'
+            }`}
+          >
+            <View>
+              <ThemedText
+                variant={currentCurrency === currency.code ? 'brand' : 'default'}
+                weight={currentCurrency === currency.code ? 'semibold' : 'regular'}
+                size="base"
+              >
+                {currency.name}
+              </ThemedText>
+              <MutedText size="xs" className="mt-0.5">
+                {currency.symbol}
+              </MutedText>
+            </View>
+            {currentCurrency === currency.code && (
+              <Ionicons name="checkmark-circle" size={20} color="#0ea5e9" />
+            )}
+          </Pressable>
+        ))}
+      </View>
+    </CustomDialog>
+  );
+};
+
+// Week Start Dialog
+const WeekStartDialog = ({ visible, onClose, currentWeekStart, onSelectWeekStart }: any) => {
+  const weekOptions = [
+    { value: 1, label: 'Monday', icon: 'calendar' },
+    { value: 0, label: 'Sunday', icon: 'calendar' },
+  ];
+
+  return (
+    <CustomDialog
+      visible={visible}
+      variant="info"
+      title="Week Start Day"
+      description="Select the first day of your business week"
+      icon="calendar-outline"
+      onClose={onClose}
+    >
+      <View className="gap-2 mt-2">
+        {weekOptions.map((option) => (
+          <Pressable
+            key={option.value}
+            onPress={() => {
+              onSelectWeekStart(option.value);
+              onClose();
+            }}
+            className={`p-4 rounded-xl border flex-row justify-between items-center ${
+              currentWeekStart === option.value
+                ? 'border-brand bg-brand/10'
+                : 'border-border dark:border-dark-border'
+            }`}
+          >
+            <ThemedText
+              variant={currentWeekStart === option.value ? 'brand' : 'default'}
+              weight={currentWeekStart === option.value ? 'semibold' : 'regular'}
+              size="base"
+            >
+              {option.label}
+            </ThemedText>
+            {currentWeekStart === option.value && (
+              <Ionicons name="checkmark-circle" size={20} color="#0ea5e9" />
+            )}
+          </Pressable>
+        ))}
+      </View>
+    </CustomDialog>
+  );
+};
+
+// Edit Profile Modal
+const EditProfileModal = ({ visible, onClose, user, onUpdate }: any) => {
+  const [displayName, setDisplayName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [loading, setLoading] = useState(false);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (user) {
+      setDisplayName(user.displayName || '');
+      setEmail(user.email || '');
+      setPhone(user.phone || '');
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.spring(slideAnim, {
+          toValue: 1,
+          friction: 7,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [visible]);
+
+  const handleSave = async () => {
+    setLoading(true);
+    await onUpdate({ displayName, email, phone });
+    setLoading(false);
+    onClose();
+  };
+
+  if (!visible) return null;
+
+  return (
+    <Modal transparent visible={visible} animationType="none">
+      <Animated.View
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(0,0,0,0.6)',
+          opacity: fadeAnim,
+        }}
+      >
+        <TouchableOpacity
+          style={{ flex: 1 }}
+          activeOpacity={1}
+          onPress={onClose}
+        />
+        <Animated.View
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            transform: [{
+              translateY: slideAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [height, 0],
+              }),
+            }],
+          }}
+        >
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
+            <BlurView
+              intensity={Platform.OS === 'ios' ? 80 : 100}
+              tint="light"
+              className="rounded-t-3xl overflow-hidden"
+            >
+              <View className="bg-white/95 dark:bg-gray-900/95 p-6 rounded-t-3xl">
+                <View className="items-center mb-6">
+                  <View className="w-12 h-1 rounded-full bg-gray-300 dark:bg-gray-700 mb-4" />
+                  <ThemedText size="xl" weight="bold">
+                    Edit Profile
+                  </ThemedText>
+                </View>
+
+                <View className="gap-4">
+                  <View>
+                    <ThemedText variant="label" size="sm" weight="medium" className="mb-2">
+                      Full Name
+                    </ThemedText>
+                    <TextInput
+                      value={displayName}
+                      onChangeText={setDisplayName}
+                      className="border border-border dark:border-dark-border rounded-xl px-4 py-3 text-text dark:text-dark-text"
+                      placeholder="Enter your name"
+                      placeholderTextColor="#94a3b8"
+                    />
+                  </View>
+
+                  <View>
+                    <ThemedText variant="label" size="sm" weight="medium" className="mb-2">
+                      Email
+                    </ThemedText>
+                    <TextInput
+                      value={email}
+                      onChangeText={setEmail}
+                      className="border border-border dark:border-dark-border rounded-xl px-4 py-3 text-text dark:text-dark-text"
+                      placeholder="Enter your email"
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      placeholderTextColor="#94a3b8"
+                    />
+                  </View>
+
+                  <View>
+                    <ThemedText variant="label" size="sm" weight="medium" className="mb-2">
+                      Phone
+                    </ThemedText>
+                    <TextInput
+                      value={phone}
+                      onChangeText={setPhone}
+                      className="border border-border dark:border-dark-border rounded-xl px-4 py-3 text-text dark:text-dark-text"
+                      placeholder="Enter your phone number"
+                      keyboardType="phone-pad"
+                      placeholderTextColor="#94a3b8"
+                    />
+                  </View>
+                </View>
+
+                <View className="flex-row gap-3 mt-8">
+                  <Button
+                    variant="outline"
+                    onPress={onClose}
+                    className="flex-1"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="default"
+                    onPress={handleSave}
+                    loading={loading}
+                    className="flex-1"
+                  >
+                    Save Changes
+                  </Button>
+                </View>
+              </View>
+            </BlurView>
+          </KeyboardAvoidingView>
+        </Animated.View>
+      </Animated.View>
+    </Modal>
+  );
+};
+
+// Main Profile Screen Component
 export default function ProfileScreen() {
   const router = useRouter();
-  const { t, i18n } = useTranslation();
+  const { i18n } = useTranslation();
   const { colorScheme, setColorScheme } = useColorScheme();
-  const [open, setOpen] = React.useState(false);
+  const { user, logout, currentShop } = useAuth();
+  const { showNotification } = useNotification();
+  
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const {user, logout, currentShop, setUser} = useAuth();
-  const [profile, setProfile] = useState<ProfileData>({
-    displayName: '',
-    email: '',
-    phone: '',
-    role: 'Owner',
-    joinDate: '',
-    imageUrl: '',
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [logoutDialogVisible, setLogoutDialogVisible] = useState(false);
+  const [languageDialogVisible, setLanguageDialogVisible] = useState(false);
+  const [currencyDialogVisible, setCurrencyDialogVisible] = useState(false);
+  const [weekStartDialogVisible, setWeekStartDialogVisible] = useState(false);
+  
+  const [profileStats, setProfileStats] = useState({
+    products: 0,
+    sales: 0,
+    profit: 0,
   });
-  const [settings, setSettings] = useState<AppSettings>({
-    language: 'fr',
+  
+  const [settings, setSettings] = useState({
+    language: 'en' as LangCode,
     currency: 'BIF',
     darkMode: colorScheme === 'dark',
     backupEnabled: true,
     smsAlerts: true,
     wifiOnlyBackup: true,
-    weekStartDay: 1, // Monday
-  });
-  const [imageUploading, setImageUploading] = useState(false);
-  const [userInfo, setUserInfo] = useState<{
-    displayName: string;
-    email: string;
-    phone: string;
-    password: string;
-    imageUrl?: string;
-  }>({
-    displayName: profile.displayName || '',
-    email: profile.email || '',
-    phone: profile.phone || '',
-    password: '',
-    imageUrl: profile.imageUrl || '',
+    weekStartDay: 1,
   });
 
-
-  //console.log(user?.imageUrl, "User image URL from DB");
-
-  const { showNotification } = useNotification();
-
-  useEffect(() => {
-    if (user) {
-      setUserInfo({
-        displayName: user.displayName || '',
-        email: user.email || '',
-        phone: user.phone || '',
-        password: '',
-        imageUrl: user.imageUrl || '',
-      });
-    }
-    
-  }, [user]);
+  const scrollY = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     loadProfileData();
+    loadStats();
   }, []);
 
   const loadProfileData = async () => {
     try {
       setLoading(true);
-      
-
-      // Load settings
       const settingsData = await database.get<Setting>('settings').query().fetch();
       const shopSettings = settingsData[0];
 
-      if (user) {
-        setProfile({
-          displayName: user.displayName || 'User',
-          email: user.email || '',
-          phone: user.phone || '',
-          role: 'Owner', // You might want to get this from membership
-          joinDate: user.createdAt.toLocaleDateString('fr-BI'),
-        });
-      }
-
       if (shopSettings) {
         setSettings({
-          language: shopSettings.language,
-          currency: shopSettings.currency,
+          language: (shopSettings.language as LangCode) || 'en',
+          currency: shopSettings.currency || 'BIF',
           darkMode: colorScheme === 'dark',
           backupEnabled: shopSettings.backupEnabled,
           smsAlerts: shopSettings.smsAlertsEnabled,
           wifiOnlyBackup: shopSettings.autoBackupWifiOnly,
-          weekStartDay: shopSettings.weekStartDay,
+          weekStartDay: shopSettings.weekStartDay || 1,
         });
+        
+        // Update i18n language
+        i18n.changeLanguage(shopSettings.language || 'en');
       }
     } catch (error) {
       console.error('Error loading profile data:', error);
-      Alert.alert('Error', 'Failed to load profile data');
     } finally {
       setLoading(false);
     }
   };
-  // regex to verify email 
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-  const isEmailValid = (email: string) => {
-    return emailRegex.test(email);
+  const loadStats = async () => {
+    // TODO: Replace with actual data from WatermelonDB
+    setTimeout(() => {
+      setProfileStats({
+        products: 234,
+        sales: 1289,
+        profit: 45230,
+      });
+    }, 500);
   };
 
+  const handleUpdateUser = async (data: any) => {
+    try {
+      await database.write(async () => {
+        const usr = await database.get<User>('users').find(user?.id || '');
+        await usr.update(record => {
+          if (data.displayName) record.displayName = data.displayName;
+          if (data.email) record.email = data.email;
+          if (data.phone) record.phone = data.phone;
+        });
+      });
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      showNotification({
+        type: 'success',
+        title: 'Profile Updated',
+        message: 'Your profile has been updated successfully',
+        duration: 3000,
+      });
+    } catch (error) {
+      showNotification({
+        type: 'error',
+        title: 'Update Failed',
+        message: 'Failed to update profile',
+        duration: 3000,
+      });
+    }
+  };
+
+  const pickProfileImage = async () => {
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        showNotification({
+          type: 'warning',
+          title: 'Permission Required',
+          message: 'We need access to your photos',
+          duration: 3000,
+        });
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0].uri) {
+        await database.write(async () => {
+          const usr = await database.get<User>('users').find(user?.id || '');
+          if (usr) {
+            await usr.update(record => {
+              record.imageUrl = result.assets[0].uri;
+            });
+          }
+        });
+
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        showNotification({
+          type: 'success',
+          title: 'Profile Image Updated',
+          message: 'Your profile image has been updated',
+        });
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      showNotification({
+        type: 'error',
+        title: 'Update Failed',
+        message: 'Failed to update profile image',
+      });
+    }
+  };
 
   const updateSettings = async () => {
     if (!currentShop) return;
-
+    
     setSaving(true);
     try {
       const settingsData = await database.get<Setting>('settings')
@@ -167,7 +940,6 @@ export default function ProfileScreen() {
         .fetch();
       
       const shopSettings = settingsData[0];
-
       if (shopSettings) {
         await database.write(async () => {
           await shopSettings.update(record => {
@@ -182,165 +954,35 @@ export default function ProfileScreen() {
         });
       }
 
-      // Update app language
-      i18n.changeLanguage(settings.language);
-      
-      // Update dark mode
-      //console.log()
-
       setColorScheme(settings.darkMode ? 'dark' : 'light');
-
-      Alert.alert('Success', 'Settings updated successfully');
+      
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      showNotification({
+        type: 'success',
+        title: 'Settings Saved',
+        message: 'Your preferences have been updated',
+      });
     } catch (error) {
       console.error('Error updating settings:', error);
-      Alert.alert('Error', 'Failed to update settings');
+      showNotification({
+        type: 'error',
+        title: 'Update Failed',
+        message: 'Failed to save settings',
+      });
     } finally {
       setSaving(false);
     }
   };
 
-  const pickProfileImage = async () => {
-    try {
-      setImageUploading(true);
-      
-      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      
-      if (!permissionResult.granted) {
-        Alert.alert('Permission requise', 'Nous avons besoin d\'accéder à vos photos');
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets[0].uri) {
-
-        //console.log("Selected image:", result.assets[0].uri);
-
-
-        if(result.assets[0].uri){
-          await database.write(async () => {
-          const usr = await database.get<User>('users').find(user?.id || '');
-          if (usr) {
-            await usr.update(record => {
-              record.imageUrl = result.assets[0].uri;
-            });
-          }
-        });
-
-        setTimeout(() => {
-        showNotification({
-        type: 'success',
-        title: 'Profile Image Updated',
-        message: 'Your profile image has been updated successfully',
-      });
-    }, 1000);
-        }
-
-        
-      }
-    } catch (error) {
-      console.error('Error picking image:', error);
-      setTimeout(() => {
-        showNotification({
-        type: 'error',
-        title: 'Failed to Update Profile Image',
-        message: 'An error occurred while updating your profile image',
-      });
-    }, 1000);
-  
-    } finally {
-      setImageUploading(false);
-    }
+  const handleLogout = async () => {
+    setLogoutDialogVisible(false);
+    await logout();
   };
-
-  const handleLogout =  () => {
-   setOpen(!open)
-  };
-
- 
-
-  const SettingRow = ({ 
-    icon, 
-    title, 
-    subtitle, 
-    action, 
-    onPress ,
-  }: {
-    icon: string;
-    title: string;
-    subtitle?: string;
-    action?: React.ReactNode;
-    onPress?: () => void;
-  }) => (
-    <TouchableOpacity
-      onPress={onPress}
-      className="flex-row items-center justify-between py-4 border-b border-border dark:border-dark-border"
-    >
-      <View className="flex-row items-center flex-1">
-        <View className="w-10 h-10 rounded-lg bg-brand/10 items-center justify-center mr-3">
-          <Ionicons name={icon as any} size={20} color="#0ea5e9" />
-        </View>
-        <View className="flex-1">
-          <ThemedText variant="default" size="base" className="font-medium">
-            {title}
-          </ThemedText>
-          <ThemedText variant="muted" size="sm" className="mt-1">
-              {subtitle}
-            </ThemedText>
-        </View>
-      </View>
-      {action}
-    </TouchableOpacity>
-  );
-
-
-
-  const SwitchSetting = ({ 
-    icon, 
-    title, 
-    subtitle, 
-    value, 
-    onValueChange 
-  }: {
-    icon: string;
-    title: string;
-    subtitle?: string;
-    value: boolean;
-    onValueChange: (value: boolean) => void;
-  }) => (
-    <View className="flex-row items-center justify-between py-4 border-b border-border dark:border-dark-border">
-      <View className="flex-row items-center flex-1">
-        <View className="w-10 h-10 rounded-lg bg-brand/10 items-center justify-center mr-3">
-          <Ionicons name={icon as any} size={20} color="#0ea5e9" />
-        </View>
-        <View className="flex-1">
-          <ThemedText variant="default" size="base" className="font-medium">
-            {title}
-          </ThemedText>
-          {subtitle && (
-            <ThemedText variant="muted" size="sm" className="mt-1">
-              {subtitle}
-            </ThemedText>
-          )}
-        </View>
-      </View>
-      <Switch
-        value={value}
-        onValueChange={onValueChange}
-        trackColor={{ false: '#cbd5e1', true: '#0ea5e9' }}
-        thumbColor={value ? '#ffffff' : '#f8fafc'}
-      />
-    </View>
-  );
 
   if (loading) {
     return (
       <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
-        <PremiumHeader title="Profile & Settings" />
+        <StatusBar barStyle="light-content" />
         <Loading />
       </View>
     );
@@ -348,547 +990,324 @@ export default function ProfileScreen() {
 
   return (
     <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
-      <PremiumHeader 
-        title="Profile & Settings"
-      />
+      <StatusBar barStyle="light-content" />
       
+      <AnimatedHeader
+        scrollY={scrollY}
+        user={user}
+        onEditPress={() => setEditModalVisible(true)}
+      />
 
-      <ScrollView 
-        className="flex-1"
+      <Animated.ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 100 }}
+        scrollEventThrottle={16}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: false }
+        )}
+        contentContainerStyle={{ paddingTop: 20, paddingBottom: 40 }}
       >
-        <View className="p-4 gap-4">
-          {/* Profile Header */}
-          <Card variant="elevated">
-            <CardContent className="p-6">
-              <View className="items-center">
-                {/* Profile Image Section */}
-                <TouchableOpacity
-                  onPress={pickProfileImage}
-                  disabled={imageUploading}
-                  activeOpacity={0.7}
-                  className="relative self-center mb-6"
-                >
-                  {/* Main Avatar Container */}
-                  <View className="w-28 h-28 rounded-full bg-surface-muted dark:bg-dark-surface-muted items-center justify-center border-4 border-white dark:border-gray-800 shadow-lg overflow-hidden">
-                    
-                    {/* STATE 1: Loading */}
-                    {imageUploading ? (
-                      <View className="absolute inset-0 bg-black/50 items-center justify-center z-20">
-                        <Ionicons name="refresh" size={32} color="#ffffff" class="animate-spin" />
-                      </View>
-                    ) : null}
-
-                    {/* STATE 2: Image Exists */}
-                    {user?.imageUrl ? (
-                      <Image
-                        source={{ uri: user.imageUrl }}
-                        className="w-full h-full"
-                        resizeMode="cover"
-                        // Optional: Add a fade-in effect if your library supports it
-                      />
-                    ) : (
-                      /* STATE 3: Fallback Initials */
-                      <View className="w-full h-full items-center justify-center bg-brand/10">
-                        <ThemedText 
-                          variant="brand" 
-                          size="3xl" 
-                          className="font-bold text-brand"
-                        >
-                          {profile.displayName?.[0]?.toUpperCase() || 'U'}
-                        </ThemedText>
-                      </View>
-                    )}
-
-                    {/* Overlay Gradient (Optional: makes text/icon pop more) */}
-                    {!imageUploading && (
-                      <View className="absolute inset-0 rounded-full bg-black/0 active:bg-black/10 transition-colors" />
-                    )}
-                  </View>
-
-                  {/* Camera Badge */}
-                  <View className="absolute bottom-1 right-1 w-9 h-9 rounded-full bg-brand items-center justify-center border-4 border-white dark:border-gray-900 shadow-md z-10">
-                    <Ionicons 
-                      name={imageUploading ? "hourglass" : "camera"} 
-                      size={16} 
-                      color="#ffffff" 
-                    />
-                  </View>
-                </TouchableOpacity>
-
-                {/* Profile Info */}
-                <ThemedText variant="heading" size="xl" className="mb-1">
-                  {profile.displayName}
-                </ThemedText>
-                <ThemedText variant="muted" size="base" className="mb-3">
-                  {profile.role} • Joined {profile.joinDate}
-                </ThemedText>
-
-                {/* Shop Info */}
-                {currentShop && (
-                  <View className="bg-surface-soft dark:bg-dark-surface-soft rounded-xl p-4 w-full">
-                    <View className="flex-row justify-between items-center">
-                      <View>
-                        <ThemedText variant="default" size="base" className="font-medium">
-                          {currentShop.name}
-                        </ThemedText>
-                        <ThemedText variant="muted" size="sm">
-                          {currentShop.location}
-                        </ThemedText>
-                      </View>
-                      <Badge variant="success">
-                        Active
-                      </Badge>
-                    </View>
-                  </View>
-                )}
-
-                {/* Action Buttons */}
-                <View className="flex-row gap-3 mt-4">
-                  <Button
-                    variant="success"
-                    size="sm"
-                    // make  this router dynamic 
-                    onPress={() => {currentShop ? router.push('/(auth)/manage-shop') : router.push('/(auth)/create-shop')}}
-                    //onPress={() => router.push('/(auth)/manage-shop')}
-                    icon="business-outline"
-                  >
-                    {currentShop ? 'Manage Shops' : 'Create Shop'}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onPress={() => {/* Edit profile */}}
-                    icon="create-outline"
-                  >
-                    Edit Profile
-                  </Button>
-                </View>
-              </View>
-            </CardContent>
-          </Card>
-
-          {/* Account Information */}
-          <UserInformation user={user ?? null} />
-          
-
-          {/* App Settings */}
-          <Card variant="elevated">
-            <CardHeader
-              title="App Settings"
-              subtitle="Customize your app experience"
+        <View className="px-2 gap-4">
+          {/* Stats Section */}
+          <View className="flex-row mt-4">
+            <StatsCard
+              icon="cube-outline"
+              label="Total Products"
+              value={profileStats.products}
+              trend="+12"
+              trendUp
             />
-            <CardContent className="p-0">
-              {/* Language */}
-              <SettingRow
-                icon="language-outline"
-                title="Language"
-                subtitle={settings.language === 'fr' ? 'Français' : 'Kirundi'}
-                onPress={() => {
-                  Alert.alert(
-                    'Select Language',
-                    'Choose your preferred language',
-                    [
-                      { text: 'Français', onPress: () => setSettings(prev => ({ ...prev, language: 'fr' })) },
-                      { text: 'Kirundi', onPress: () => setSettings(prev => ({ ...prev, language: 'rn' })) },
-                      { text: 'Cancel', style: 'cancel' }
-                    ]
-                  );
-                }}
-                action={
-                  <View className="flex-row items-center">
-                    <ThemedText variant="muted" size="sm" className="mr-2">
-                      {settings.language === 'fr' ? 'FR' : 'RN'}
-                    </ThemedText>
-                    <Ionicons name="chevron-forward" size={20} color="#64748b" />
-                  </View>
-                }
-              />
+            <StatsCard
+              icon="cart-outline"
+              label="Total Sales"
+              value={profileStats.sales}
+              trend="+8"
+              trendUp
+            />
+            <StatsCard
+              icon="trending-up-outline"
+              label="Profit"
+              value={`${CURRENCIES.find(c => c.code === settings.currency)?.symbol || '₣'}${profileStats.profit.toLocaleString()}`}
+              trend="+23"
+              trendUp
+            />
+          </View>
 
-              {/* Currency */}
-              <SettingRow
-                icon="cash-outline"
-                title="Currency"
-                subtitle="Primary currency for transactions"
-                onPress={() => {
-                  Alert.alert(
-                    'Select Currency',
-                    'Choose your primary currency',
-                    [
-                      { text: 'Burundi Franc (BIF)', onPress: () => setSettings(prev => ({ ...prev, currency: 'BIF' })) },
-                      { text: 'US Dollar (USD)', onPress: () => setSettings(prev => ({ ...prev, currency: 'USD' })) },
-                      { text: 'Euro (EUR)', onPress: () => setSettings(prev => ({ ...prev, currency: 'EUR' })) },
-                      { text: 'Cancel', style: 'cancel' }
-                    ]
-                  );
-                }}
-                action={
-                  <View className="flex-row items-center">
-                    <ThemedText variant="muted" size="sm" className="mr-2">
-                      {settings.currency}
-                    </ThemedText>
-                    <Ionicons name="chevron-forward" size={20} color="#64748b" />
-                  </View>
-                }
-              />
+          {/* User Information Section */}
+          {user && (
+            <UserInformationSection 
+              user={user} 
+              onUpdate={handleUpdateUser}
+            />
+          )}
 
-              {/* Week Start Day */}
-              <SettingRow
-                icon="calendar-outline"
-                title="Week Starts On"
-                subtitle="First day of the week for reports"
-                onPress={() => {
-                  Alert.alert(
-                    'Week Start Day',
-                    'Select the first day of your business week',
-                    [
-                      { text: 'Monday', onPress: () => setSettings(prev => ({ ...prev, weekStartDay: 1 })) },
-                      { text: 'Sunday', onPress: () => setSettings(prev => ({ ...prev, weekStartDay: 0 })) },
-                      { text: 'Cancel', style: 'cancel' }
-                    ]
-                  );
-                }}
-                action={
-                  <View className="flex-row items-center">
-                    <ThemedText variant="muted" size="sm" className="mr-2">
-                      {settings.weekStartDay === 1 ? 'Monday' : 'Sunday'}
-                    </ThemedText>
-                    <Ionicons name="chevron-forward" size={20} color="#64748b" />
+          {/* Shop Info Card */}
+          {currentShop && (
+            <MotiView
+              from={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ type: 'spring', delay: 300 }}
+            >
+              <Card variant="elevated" className="overflow-hidden">
+                <LinearGradient
+                  colors={['#0ea5e9', '#0284c7']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  className="p-5"
+                >
+                  <View className="flex-row justify-between items-center">
+                    <View className="flex-1">
+                      <ThemedText variant="label" size="sm" className="text-white/80 mb-1">
+                        ACTIVE SHOP
+                      </ThemedText>
+                      <ThemedText size="lg" weight="bold" className="text-white">
+                        {currentShop.name}
+                      </ThemedText>
+                      <ThemedText variant='label' size="sm" className="text-white/70 mt-1">
+                        {currentShop.location}
+                      </ThemedText>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => router.push('/(auth)/manage-shop')}
+                      className="bg-white/20 px-4 py-2 rounded-sm"
+                    >
+                      <ThemedText variant="default" size="sm" weight="medium" className="text-white">
+                        Manage
+                      </ThemedText>
+                    </TouchableOpacity>
                   </View>
-                }
-              />
+                </LinearGradient>
+              </Card>
+            </MotiView>
+          )}
 
-              {/* Dark Mode */}
-              <SwitchSetting
-                icon="moon-outline"
-                title="Dark Mode"
-                subtitle="Use dark theme throughout the app"
-                value={settings.darkMode}
-                onValueChange={(value) => {
-                  setSettings(prev => ({ ...prev, darkMode: value }))
-                  setColorScheme(value ? 'dark' : 'light')
-                }}
+          {/* App Settings Section */}
+          <MotiView
+            from={{ opacity: 0, translateY: 30 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'timing', duration: 500, delay: 400 }}
+          >
+            <Card variant="elevated">
+              <CardHeader
+                title="App Settings"
+                subtitle="Customize your experience"
               />
-            </CardContent>
-          </Card>
+              <CardContent className="p-0">
+                <ModernSettingRow
+                  icon="language-outline"
+                  title="Language"
+                  subtitle={getNativeLanguageName(settings.language)}
+                  onPress={() => setLanguageDialogVisible(true)}
+                  action={
+                    <View className="flex-row items-center">
+                      <MutedText size="sm" className="mr-2">
+                        {settings.language.toUpperCase()}
+                      </MutedText>
+                      <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
+                    </View>
+                  }
+                />
+
+                <ModernSettingRow
+                  icon="cash-outline"
+                  title="Currency"
+                  subtitle={`${CURRENCIES.find(c => c.code === settings.currency)?.name} (${CURRENCIES.find(c => c.code === settings.currency)?.symbol})`}
+                  onPress={() => setCurrencyDialogVisible(true)}
+                  action={
+                    <View className="flex-row items-center">
+                      <MutedText size="sm" className="mr-2">
+                        {settings.currency}
+                      </MutedText>
+                      <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
+                    </View>
+                  }
+                />
+
+                <ModernSettingRow
+                  icon="calendar-outline"
+                  title="Week Starts On"
+                  subtitle={settings.weekStartDay === 1 ? 'Monday' : 'Sunday'}
+                  onPress={() => setWeekStartDialogVisible(true)}
+                  action={
+                    <View className="flex-row items-center">
+                      <MutedText size="sm" className="mr-2">
+                        {settings.weekStartDay === 1 ? 'Mon' : 'Sun'}
+                      </MutedText>
+                      <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
+                    </View>
+                  }
+                />
+
+                <ModernSwitchRow
+                  icon="moon-outline"
+                  title="Dark Mode"
+                  subtitle="Use dark theme throughout the app"
+                  value={settings.darkMode}
+                  onValueChange={(value: boolean) => {
+                    setSettings(prev => ({ ...prev, darkMode: value }));
+                    setColorScheme(value ? 'dark' : 'light');
+                  }}
+                />
+              </CardContent>
+            </Card>
+          </MotiView>
 
           {/* Notifications & Backup */}
-          <Card variant="elevated">
-            <CardHeader
-              title="Notifications & Backup"
-              subtitle="Alerts and data management"
-            />
-            <CardContent className="p-0">
-              <SwitchSetting
-                icon="notifications-outline"
-                title="SMS Alerts"
-                subtitle="Receive low stock alerts via SMS"
-                value={settings.smsAlerts}
-                onValueChange={(value) => setSettings(prev => ({ ...prev, smsAlerts: value }))}
+          <MotiView
+            from={{ opacity: 0, translateY: 30 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'timing', duration: 500, delay: 500 }}
+          >
+            <Card variant="elevated">
+              <CardHeader
+                title="Notifications & Backup"
+                subtitle="Manage your alerts and data"
               />
-              <SwitchSetting
-                icon="cloud-upload-outline"
-                title="Cloud Backup"
-                subtitle="Automatically backup your data"
-                value={settings.backupEnabled}
-                onValueChange={(value) => setSettings(prev => ({ ...prev, backupEnabled: value }))}
-              />
-              <SwitchSetting
-                icon="wifi-outline"
-                title="Wi-Fi Only Backup"
-                subtitle="Only backup when connected to Wi-Fi"
-                value={settings.wifiOnlyBackup}
-                onValueChange={(value) => setSettings(prev => ({ ...prev, wifiOnlyBackup: value }))}
-              />
-            </CardContent>
-          </Card>
+              <CardContent className="p-0">
+                <ModernSwitchRow
+                  icon="notifications-outline"
+                  title="SMS Alerts"
+                  subtitle="Receive low stock alerts"
+                  value={settings.smsAlerts}
+                  onValueChange={(value: boolean) => setSettings(prev => ({ ...prev, smsAlerts: value }))}
+                />
+                <ModernSwitchRow
+                  icon="cloud-upload-outline"
+                  title="Cloud Backup"
+                  subtitle="Auto backup your data"
+                  value={settings.backupEnabled}
+                  onValueChange={(value: boolean) => setSettings(prev => ({ ...prev, backupEnabled: value }))}
+                />
+                <ModernSwitchRow
+                  icon="wifi-outline"
+                  title="Wi-Fi Only Backup"
+                  subtitle="Backup on Wi-Fi only"
+                  value={settings.wifiOnlyBackup}
+                  onValueChange={(value: boolean) => setSettings(prev => ({ ...prev, wifiOnlyBackup: value }))}
+                />
+              </CardContent>
+            </Card>
+          </MotiView>
 
-          {/* Support & Information */}
-          <Card variant="elevated">
-            <CardHeader
-              title="Support & Information"
-              subtitle="Get help and learn about the app"
-            />
-            <CardContent className="p-0">
-              <SettingRow
-                icon="help-circle-outline"
-                title="Help & Support"
-                subtitle="Get help with using the app"
-                onPress={() => {/* Open help */}}
-                action={<Ionicons name="chevron-forward" size={20} color="#64748b" />}
+          {/* Support Section */}
+          <MotiView
+            from={{ opacity: 0, translateY: 30 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'timing', duration: 500, delay: 600 }}
+          >
+            <Card variant="elevated">
+              <CardHeader
+                title="Support & Information"
+                subtitle="Need help? We're here for you"
               />
-              <SettingRow
-                icon="document-text-outline"
-                title="Terms & Privacy"
-                subtitle="Read our terms and privacy policy"
-                onPress={() => {/* Open terms */}}
-                action={<Ionicons name="chevron-forward" size={20} color="#64748b" />}
-              />
-              <SettingRow
-                icon="information-circle-outline"
-                title="About StockMaster"
-                subtitle={`Version 1.0.0 • Build 100`}
-                onPress={() => {/* Open about */}}
-                action={<Ionicons name="chevron-forward" size={20} color="#64748b" />}
-              />
-            </CardContent>
-          </Card>
+              <CardContent className="p-0">
+                <ModernSettingRow
+                  icon="help-circle-outline"
+                  title="Help & Support"
+                  subtitle="FAQs and contact support"
+                  onPress={() => {}}
+                />
+                <ModernSettingRow
+                  icon="document-text-outline"
+                  title="Terms & Privacy"
+                  subtitle="Read our terms and policies"
+                  onPress={() => {}}
+                />
+                <ModernSettingRow
+                  icon="information-circle-outline"
+                  title="About StockMaster"
+                  subtitle="Version 1.0.0 • Build 100"
+                  onPress={() => {}}
+                  isLast
+                />
+              </CardContent>
+            </Card>
+          </MotiView>
 
           {/* Action Buttons */}
-          <View className="gap-3">
+          <MotiView
+            from={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ type: 'spring', delay: 700 }}
+            className="gap-3 mt-2"
+          >
             <Button
               variant="default"
               onPress={updateSettings}
               loading={saving}
               icon="save-outline"
+              size="lg"
             >
               Save Settings
             </Button>
 
-            {/* <Button
-              variant="outline"
-              onPress={() => router.push('/(auth)/create-shop')}
-              icon="business-outline"
-            >
-              {currentShop ? 'Manage Shops' : 'Create First Shop'}
-            </Button> */}
-
             <Button
               variant="destructive"
-              onPress={handleLogout}
+              onPress={() => setLogoutDialogVisible(true)}
               icon="log-out-outline"
+              size="lg"
             >
               Logout
             </Button>
-          </View>
+          </MotiView>
         </View>
-      </ScrollView>
+      </Animated.ScrollView>
 
-      <Dialog
-        visible={open}
-        variant="warning"
-        title="Sign out"
-        description="Are you sure you want to sign out of your account?"
-        confirmText="Sign out"
-        destructive
-        onCancel={() => setOpen(false)}
-        onConfirm={async() => {
-          setOpen(false);
-          await logout();
+      {/* Dialogs */}
+      <EditProfileModal
+        visible={editModalVisible}
+        onClose={() => setEditModalVisible(false)}
+        user={user}
+        onUpdate={handleUpdateUser}
+      />
+
+      <LanguageDialog
+        visible={languageDialogVisible}
+        onClose={() => setLanguageDialogVisible(false)}
+        currentLanguage={settings.language}
+        onSelectLanguage={(lang: LangCode) => {
+          setSettings(prev => ({ ...prev, language: lang }));
+          i18n.changeLanguage(lang);
         }}
+      />
+
+      <CurrencyDialog
+        visible={currencyDialogVisible}
+        onClose={() => setCurrencyDialogVisible(false)}
+        currentCurrency={settings.currency}
+        onSelectCurrency={(currency: string) => {
+          setSettings(prev => ({ ...prev, currency }));
+        }}
+      />
+
+      <WeekStartDialog
+        visible={weekStartDialogVisible}
+        onClose={() => setWeekStartDialogVisible(false)}
+        currentWeekStart={settings.weekStartDay}
+        onSelectWeekStart={(day: number) => {
+          setSettings(prev => ({ ...prev, weekStartDay: day }));
+        }}
+      />
+
+      <CustomDialog
+        visible={logoutDialogVisible}
+        variant="warning"
+        title="Sign Out"
+        description="Are you sure you want to sign out of your account?"
+        actions={[
+          {
+            label: 'Cancel',
+            onPress: () => setLogoutDialogVisible(false),
+            variant: 'outline',
+          },
+          {
+            label: 'Sign Out',
+            onPress: handleLogout,
+            variant: 'destructive',
+          },
+        ]}
+        onClose={() => setLogoutDialogVisible(false)}
       />
     </View>
   );
 }
-
-
-
-const UserInformation = ({
-  user = null
-}: {
-  user: User | null
-}) => {
-  const [displayName, setDisplayName] = useState(user?.displayName || '');
-  const [email, setEmail] = useState(user?.email || '');
-  const [phone, setPhone] = useState(user?.phone || '');
-  const [password, setPassword] = useState('');
-  const [isEdited, setIsEdited] = useState(false);
-  const [isPhoneEdited, setIsPhoneEdited] = useState(false);
-  const [isPasswordEdited, setIsPasswordEdited] = useState(false);
-  const [isEmailEdited, setIsEmailEdited] = useState(false);
-
-  useEffect(() => {
-    setDisplayName(user?.displayName || '');
-    setEmail(user?.email || '');
-    setPhone(user?.phone || '');
-  }, [user]);
-
-
-
-  const handleSave = async () => {
-   await database.write (async () => {
-     const usr = await database.get<User>('users').find(user?.id || '');
-     await usr.update(record => {
-       if(isEdited) record.displayName = displayName;
-       if(isEmailEdited) record.email = email;
-       if(isPhoneEdited) record.phone = phone;
-       if(isPasswordEdited) record.password = password;
-     })
-
-     setIsEdited(false);
-     setIsEmailEdited(false);
-     setIsPhoneEdited(false);
-     setIsPasswordEdited(false);
-   })
-  };
-
-  const handleChangeText = (field: string, value: string) => {
-  // Update the correct field locally
-  if (field === 'displayName') {
-    setDisplayName(value);
-    setIsEdited(true);
-    
-  };
-  if (field === 'email') {
-    setEmail(value);
-    setIsEmailEdited(true);
-  };
-  if (field === 'phone') {
-    setPhone(value);
-    setIsPhoneEdited(true);
-  };
-
-  if (field === 'password') {
-    setPassword(value);
-    setIsPasswordEdited(true);
-  };
-};
-
-  return (
-    <Card variant="elevated">
-      <CardHeader title="User Information" subtitle="Manage your account details" />
-      <CardContent>
-        {/* Name Row */}
-        <View className="flex-row items-center flex-1 border-b border-b-border dark:border-b-dark-border mt-2 relative">
-          <View className="w-10 h-10 rounded-lg bg-brand/10 items-center justify-center mr-3">
-            <Ionicons name={`person-outline`} size={20} color="#0ea5e9" />
-          </View>
-
-          <View className="flex-1 mt-2 pr-8">
-            <ThemedText
-              variant="default"
-              size="base"
-              className="font-medium text-default dark:text-dark-default"
-            >
-              Full Name
-            </ThemedText>
-            <TextInput
-              value={displayName}
-              onChangeText={(text) => handleChangeText('displayName', text)}
-              placeholder="John Doe"
-              className="border-0 bg-transparent text-text-muted dark:text-dark-text-muted text-sm text-[18px]"
-            />
-          </View>
-
-          {/* ✅ Tick Icon (only shows when edited) */}
-          {isEdited && (
-            <TouchableOpacity
-              onPress={handleSave}
-              className="absolute right-0 top-7" // position over input
-            >
-              <Ionicons name="checkmark-circle" size={22} color="#0ea5e9" />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        <View className="flex-row items-center flex-1 border-b border-b-border dark:border-b-dark-border mt-2 relative">
-          <View className="w-10 h-10 rounded-lg bg-brand/10 items-center justify-center mr-3">
-            <Ionicons name='mail-outline' size={20} color="#0ea5e9" />
-          </View>
-
-          <View className="flex-1 mt-2 pr-8"> 
-            <ThemedText
-              variant="default"
-              size="base"
-              className="font-medium text-default dark:text-dark-default"
-            >
-              Email
-            </ThemedText>
-            <TextInput
-              value={email}
-              onChangeText={(text) => handleChangeText('email', text)}
-              placeholder="example.com"
-              className="border-0 bg-transparent text-text-muted dark:text-dark-text-muted text-sm text-[18px]"
-            />
-          </View>
-
-          {/* ✅ Tick Icon (only shows when edited) */}
-          {isEmailEdited && (
-            <TouchableOpacity
-              onPress={handleSave}
-              className="absolute right-0 top-7" // position over input
-            >
-              <Ionicons name="checkmark-circle" size={22} color="#0ea5e9" />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        <View className="flex-row items-center flex-1 border-b border-b-border dark:border-b-dark-border mt-2 relative">
-          <View className="w-10 h-10 rounded-lg bg-brand/10 items-center justify-center mr-3">
-            <Ionicons name='phone-landscape-outline' size={20} color="#0ea5e9" />
-          </View>
-
-          <View className="flex-1 mt-2 pr-8"> 
-            <ThemedText
-              variant="default"
-              size="base"
-              className="font-medium text-default dark:text-dark-default"
-            >
-              Phone
-            </ThemedText>
-            <TextInput
-              value={phone}
-              onChangeText={(text) => handleChangeText('phone', text)}
-              placeholder="+257 000 000 000"
-              className="border-0 bg-transparent text-text-muted dark:text-dark-text-muted text-sm text-[18px]"
-            />
-          </View>
-
-          {/* ✅ Tick Icon (only shows when edited) */}
-          {isPhoneEdited && (
-            <TouchableOpacity
-              onPress={handleSave}
-              className="absolute right-0 top-7" // position over input
-            >
-              <Ionicons name="checkmark-circle" size={22} color="#0ea5e9" />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        <View className="flex-row items-center flex-1 border-b border-b-border dark:border-b-dark-border mt-2 relative">
-          <View className="w-10 h-10 rounded-lg bg-brand/10 items-center justify-center mr-3">
-            <Ionicons name='lock-closed-outline' size={20} color="#0ea5e9" />
-          </View>
-
-          <View className="flex-1 mt-2 pr-8"> 
-            <ThemedText
-              variant="default"
-              size="base"
-              className="font-medium text-default dark:text-dark-default"
-            >
-              Password
-            </ThemedText>
-            <TextInput
-              value={password}
-              secureTextEntry
-              onChangeText={(text) => handleChangeText('password', text)}
-              placeholder="********"
-              className="border-0 bg-transparent text-text-muted dark:text-dark-text-muted text-sm text-[18px]"
-            />
-          </View>
-
-          {/* ✅ Tick Icon (only shows when edited) */}
-          {isPasswordEdited && (
-            <TouchableOpacity
-              onPress={handleSave}
-              className="absolute right-0 top-7" // position over input
-            >
-              <Ionicons name="checkmark-circle" size={22} color="#0ea5e9" />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        
-      </CardContent>
-
-      <CardFooter>
-       <ThemedText variant="label" size="base" className="text-text-muted dark:text-dark-text-muted">
-        This is your profile. You can update your information here. Please not that this information is public. and can be seen by other users.
-       </ThemedText>
-      </CardFooter>
-    </Card>
-  );
-};
-
-//export default UserInformation;

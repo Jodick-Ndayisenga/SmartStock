@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/Input';
 
 // Types
 export type DialogVariant = 'info' | 'success' | 'warning' | 'error' | 'neutral';
+
 export type DialogAction = {
   label: string;
   onPress: () => void;
@@ -45,14 +46,18 @@ export interface CustomDialogProps {
   loading?: boolean;
   maxHeight?: number;
   width?: number | string;
+  buttonColumn?: boolean;
 }
 
-// Map dialog variant to icon name and color classes
-const VARIANT_CONFIG: Record<DialogVariant, {
-  icon: keyof typeof Ionicons.glyphMap;
-  iconColorClass: string;
-  iconBgClass: string;
-}> = {
+// Variant config
+const VARIANT_CONFIG: Record<
+  DialogVariant,
+  {
+    icon: keyof typeof Ionicons.glyphMap;
+    iconColorClass: string;
+    iconBgClass: string;
+  }
+> = {
   info: {
     icon: 'information-circle',
     iconColorClass: 'text-brand',
@@ -101,6 +106,7 @@ const CustomDialog: React.FC<CustomDialogProps> = ({
   loading = false,
   maxHeight = DEFAULT_MAX_HEIGHT,
   width = DEFAULT_WIDTH,
+  buttonColumn = false,
 }) => {
   const [fadeAnim] = useState(new Animated.Value(0));
   const [scaleAnim] = useState(new Animated.Value(0.92));
@@ -121,7 +127,7 @@ const CustomDialog: React.FC<CustomDialogProps> = ({
           useNativeDriver: true,
         }),
       ]).start();
-      
+
       setTimeout(() => {
         scrollViewRef.current?.scrollTo({ y: 0, animated: false });
       }, 100);
@@ -151,10 +157,14 @@ const CustomDialog: React.FC<CustomDialogProps> = ({
   const config = VARIANT_CONFIG[variant];
   const iconName = icon || config.icon;
 
-  // Calculate dialog position based on width
-  const dialogWidth = typeof width === 'number' ? width : parseInt(width) || DEFAULT_WIDTH;
+  const dialogWidth =
+    typeof width === 'number' ? width : parseInt(width) || DEFAULT_WIDTH;
+
   const translateX = -dialogWidth / 2;
   const translateY = -120;
+
+  // auto column if many actions
+  const isColumn = buttonColumn || actions.length > 2;
 
   return (
     <>
@@ -188,85 +198,88 @@ const CustomDialog: React.FC<CustomDialogProps> = ({
             zIndex: 1000,
           },
           {
-            transform: [
-              { scale: scaleAnim },
-              { translateX },
-              { translateY },
-            ],
+            transform: [{ scale: scaleAnim }, { translateX }, { translateY }],
           },
         ]}
       >
-        <View 
+        <View
           className="rounded-xl bg-surface dark:bg-dark-surface shadow-elevated overflow-hidden"
           style={{ maxHeight }}
         >
-          {/* FIXED: Explicitly define ScrollView props - don't spread anything */}
-          <ScrollView
-            ref={scrollViewRef}
-            showsVerticalScrollIndicator={true}
-            bounces={false}
-            contentContainerStyle={{ padding: 12 }}
-            // IMPORTANT: Explicitly set onScroll to undefined to avoid any accidental prop passing
-            onScroll={undefined}
-            scrollEventThrottle={16}
-          >
-            {/* Icon Circle */}
-            <View className={`w-14 h-14 rounded-full items-center justify-center self-center ${config.iconBgClass}`}>
-              <Ionicons 
-                name={iconName} 
-                size={24} 
-                color={
-                  variant === 'info' ? '#0ea5e9' :
-                  variant === 'success' ? '#22c55e' :
-                  variant === 'warning' ? '#f59e0b' :
-                  variant === 'error' ? '#ef4444' :
-                  '#64748b'
-                }
-              />
-            </View>
-
-            {/* Title */}
-            <ThemedText variant="subheading" size="lg" className="font-bold text-center mt-3">
-              {title}
-            </ThemedText>
-
-            {/* Description */}
-            {description && (
-              <ThemedText variant="muted" size="sm" className="text-center mt-2 px-1">
-                {description}
-              </ThemedText>
-            )}
-
-            {/* Children (custom content) */}
-            {children && (
-              <View className="mt-4">
-                {children}
-              </View>
-            )}
-
-            {/* Input */}
-            {inputProps && (
-              <View className="mt-4 w-full">
-                <Input
-                  value={inputProps.value}
-                  onChangeText={inputProps.onChangeText}
-                  placeholder={inputProps.placeholder}
-                  autoFocus={inputProps.autoFocus}
-                  className="w-full"
+          {/* Content */}
+          <View style={{ flexShrink: 1 }}>
+            <ScrollView
+              ref={scrollViewRef}
+              showsVerticalScrollIndicator
+              bounces={false}
+              contentContainerStyle={{ padding: 16 }}
+            >
+              {/* Icon */}
+              <View
+                className={`w-14 h-14 rounded-full items-center justify-center self-center ${config.iconBgClass}`}
+              >
+                <Ionicons
+                  name={iconName}
+                  size={24}
+                  color={
+                    variant === 'info'
+                      ? '#0ea5e9'
+                      : variant === 'success'
+                      ? '#22c55e'
+                      : variant === 'warning'
+                      ? '#f59e0b'
+                      : variant === 'error'
+                      ? '#ef4444'
+                      : '#64748b'
+                  }
                 />
               </View>
-            )}
-          </ScrollView>
 
-          {/* Actions - Fixed at bottom */}
-          <View className="px-6 pb-6 pt-2 border-t border-border dark:border-dark-border">
-            <View className="flex-row gap-3">
+              {/* Title */}
+              <ThemedText
+                variant="subheading"
+                size="lg"
+                className="font-bold text-center mt-3"
+              >
+                {title}
+              </ThemedText>
+
+              {/* Description */}
+              {description && (
+                <ThemedText
+                  variant="muted"
+                  size="sm"
+                  className="text-center mt-2"
+                >
+                  {description}
+                </ThemedText>
+              )}
+
+              {/* Custom content */}
+              {children && <View className="mt-4">{children}</View>}
+
+              {/* Input */}
+              {inputProps && (
+                <View className="mt-4">
+                  <Input {...inputProps} />
+                </View>
+              )}
+            </ScrollView>
+          </View>
+
+          {/* Actions */}
+          <View className="px-6 pb-6 pt-3 border-t border-border dark:border-dark-border">
+            <View
+              className={`flex ${
+                isColumn ? 'flex-col' : 'flex-row'
+              } gap-2`}
+            >
               {showCancel && (
                 <Button
                   variant="outline"
                   onPress={handleClose}
                   disabled={loading}
-                  className="flex-1"
+                  className={isColumn ? 'w-full' : 'flex-1'}
                 >
                   {cancelLabel}
                 </Button>
@@ -279,14 +292,21 @@ const CustomDialog: React.FC<CustomDialogProps> = ({
                     variant={action.variant || 'default'}
                     onPress={action.onPress}
                     disabled={action.disabled || loading}
-                    className="flex-1"
-                    loading={loading && action.label.toLowerCase().includes('save')}
+                    className={isColumn ? 'w-full' : 'flex-1'}
+                    loading={
+                      loading &&
+                      action.label.toLowerCase().includes('save')
+                    }
                   >
                     {action.label}
                   </Button>
                 ))
               ) : !showCancel ? (
-                <Button variant="default" onPress={handleClose} className="flex-1">
+                <Button
+                  variant="default"
+                  onPress={handleClose}
+                  className={isColumn ? 'w-full' : 'flex-1'}
+                >
                   OK
                 </Button>
               ) : null}

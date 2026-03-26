@@ -1,8 +1,6 @@
 // hooks/useSaleProcessor.ts
 import { useState, useCallback } from 'react';
 import { Alert } from 'react-native';
-import { SaleQueueService } from '@/services/saleQueueService';
-import { getDefaultCashAccount } from '@/services/cashAccountService';
 import { StockService } from '@/services/stockServices';
 import database from '@/database';
 import { Q } from '@nozbe/watermelondb';
@@ -20,10 +18,10 @@ interface UseSaleProcessorProps {
   customers: Contact[];
   currentShop: any;
   user: any;
-  isOffline: boolean;
-  clearCart: () => void; // Add this
+  clearCart: () => void;
   onSuccess: (data: any) => void;
   onError: (error: any) => void;
+  setCart?: (cart: CartItem[]) => void;
 }
 
 export function useSaleProcessor({
@@ -32,10 +30,10 @@ export function useSaleProcessor({
   customers,
   currentShop,
   user,
-  isOffline,
-  clearCart, // Add this
+  clearCart,
   onSuccess,
   onError,
+  setCart
 }: UseSaleProcessorProps) {
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('cash');
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
@@ -46,7 +44,7 @@ export function useSaleProcessor({
   const [isProcessingSale, setIsProcessingSale] = useState(false);
 
   const totalAmount = cart.reduce((sum, item) => sum + item.totalPrice, 0);
-  const finalTotal = totalAmount; // Add tax/discount calculations if needed
+  const finalTotal = totalAmount;
 
   const validateSale = useCallback((): boolean => {
     if (cart.length === 0) {
@@ -84,6 +82,18 @@ export function useSaleProcessor({
     return `INV-${year}${month}${day}-${random}`;
   };
 
+  const getDefaultCashAccount = async (shopId: string): Promise<CashAccount | null> => {
+    const accounts = await database.get<CashAccount>('cash_accounts')
+      .query(
+        Q.where('shop_id', shopId),
+        Q.where('is_default', true),
+        Q.where('is_active', true)
+      )
+      .fetch();
+    
+    return accounts.length > 0 ? accounts[0] : null;
+  };
+
   const getOrCreateReceivableAccount = async (shopId: string): Promise<CashAccount> => {
     const existing = await database.get<CashAccount>('cash_accounts')
       .query(
@@ -101,10 +111,11 @@ export function useSaleProcessor({
       return await database.get<CashAccount>('cash_accounts').create(account => {
         account.shopId = shopId;
         account.name = user?.displayName 
-          ? `${user.displayName.split(' ')[0]} LUMICASH` 
+          ? `${user.displayName.split(' ')[0]} RECEIVABLES` 
           : `${currentShop?.name.toUpperCase()} RECEIVABLES`;
         account.type = 'receivable';
         account.openingBalance = 0;
+        account.currentBalance = 0;
         account.currency = 'BIF';
         account.isDefault = false;
         account.isActive = true;
@@ -112,48 +123,66 @@ export function useSaleProcessor({
     });
   };
 
-  const saveSaleToQueue = useCallback(async () => {
-    const queuedSale = {
-      id: `queued-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      cart,
-      paymentMode,
-      selectedCustomer,
-      dueDate,
-      creditTerms,
-      totalAmount: finalTotal,
-      timestamp: Date.now(),
-      shopId: currentShop!.id,
-      userId: user!.id,
-    };
+  // Helper function to create account transaction with automatic balance update
+  const createAccountTransaction = async (
+    cashAccountId: string,
+    transactionId: string,
+    paymentId: string | undefined,
+    type: string,
+    amount: number,
+    description: string,
+    category: string,
+    reference: string
+  ) => {
+    const cashAccount = await database.get<CashAccount>('cash_accounts').find(cashAccountId);
+    const balanceBefore = cashAccount.currentBalance || 0;
+    
+    // Calculate new balance based on transaction type
+    let balanceAfter = balanceBefore;
+    if (type === 'income' || type === 'deposit' || type === 'receivable') {
+      balanceAfter = balanceBefore + amount;
+    } else if (type === 'expense' || type === 'withdrawal' || type === 'receivable_payment') {
+      balanceAfter = balanceBefore - amount;
+    }
 
-    await SaleQueueService.saveQueuedSale(queuedSale);
-    
-    clearCart(); // Clear cart after queuing
-    
-    onSuccess({
-      title: 'Sale Queued',
-      description: 'Your sale has been saved and will be processed when you\'re back online.',
-      variant: 'info',
-      icon: 'cloud-upload-outline',
+    // Create account transaction record
+    await database.get<AccountTransaction>('account_transactions').create(at => {
+      at.shopId = currentShop!.id;
+      at.cashAccountId = cashAccountId;
+      at.transactionId = transactionId;
+      at.paymentId = paymentId;
+      at.type = type;
+      at.amount = amount;
+      at.balanceBefore = balanceBefore;
+      at.balanceAfter = balanceAfter;
+      at.description = description;
+      at.category = category;
+      at.reference = reference;
+      at.transactionDate = Date.now();
+      at.recordedBy = user!.id;
     });
-  }, [cart, paymentMode, selectedCustomer, dueDate, creditTerms, finalTotal, currentShop, user, clearCart, onSuccess]);
+
+    // Update account balance
+    await cashAccount.update(account => {
+      account.currentBalance = balanceAfter;
+    });
+
+    return { balanceBefore, balanceAfter };
+  };
 
   const processSaleTransaction = useCallback(async () => {
     if (!currentShop || !user) throw new Error('Missing shop or user');
 
-    let defaultAccountId;
-    if (paymentMode === 'cash') {
-      const defaultAccount = await getDefaultCashAccount(currentShop.id);
-      if (!defaultAccount) {
-        throw new Error('No default cash account found. Please set a default account in settings.');
-      }
-      defaultAccountId = defaultAccount.id;
+    // Get default cash account for payments
+    const defaultCashAccount = await getDefaultCashAccount(currentShop.id);
+    if (!defaultCashAccount && paymentMode === 'cash') {
+      throw new Error('No default cash account found. Please set a default account in settings.');
     }
 
-    let receivableAccountId;
+    // Get or create receivable account for credit sales
+    let receivableAccount: CashAccount | null = null;
     if (paymentMode === 'credit') {
-      const receivableAccount = await getOrCreateReceivableAccount(currentShop.id);
-      receivableAccountId = receivableAccount.id;
+      receivableAccount = await getOrCreateReceivableAccount(currentShop.id);
     }
 
     const amountPaid = paymentMode === 'cash' ? finalTotal : creditPaymentAmount;
@@ -161,6 +190,7 @@ export function useSaleProcessor({
     const paymentStatus = balanceDue <= 0 ? 'paid' : (amountPaid > 0 ? 'partial' : 'due');
 
     const transaction = await database.write(async () => {
+      // Create the main transaction
       const newTransaction = await database.get<Transaction>('transactions').create(t => {
         t.shopId = currentShop.id;
         t.transactionType = 'sale';
@@ -177,96 +207,154 @@ export function useSaleProcessor({
         t.dueDate = dueDate || undefined;
         t.recordedBy = user.id;
         t.notes = creditTerms || '';
+        
+        // Set account references for easier querying
+        if (paymentMode === 'cash') {
+          t.destinationAccountId = defaultCashAccount!.id;
+        } else if (paymentMode === 'credit') {
+          t.sourceAccountId = receivableAccount!.id;
+        }
       });
 
-      if (paymentMode === 'cash' || (paymentMode === 'credit' && amountPaid > 0)) {
-        const cashAccountId = paymentMode === 'cash' 
-          ? defaultAccountId! 
-          : await getDefaultCashAccount(currentShop.id).then(a => a?.id);
+      // ============================================
+      // CASE 1: CASH SALE
+      // ============================================
+      if (paymentMode === 'cash') {
+        // Create account transaction for the sale (income)
+        await createAccountTransaction(
+          defaultCashAccount!.id,
+          newTransaction.id,
+          undefined,
+          'income',
+          finalTotal,
+          `Sale - ${newTransaction.transactionNumber}`,
+          'sales',
+          newTransaction.transactionNumber
+        );
         
-        if (cashAccountId) {
-          const payment = await database.get<Payment>('payments').create(p => {
-            p.transactionId = newTransaction.id;
-            p.referenceNumber= `REF-${newTransaction.id}`
-            p.shopId = currentShop.id;
-            p.paymentMethodId = 'cash';
-            p.cashAccountId = cashAccountId;
-            p.amount = amountPaid;
-            p.paymentDate = Date.now();
-            p.notes = paymentMode === 'credit' ? 'Partial payment for credit sale' : 'Cash payment for sale';
-            p.recordedBy = user.id;
-          });
-
-          const cashAccount = await database.get<CashAccount>('cash_accounts').find(cashAccountId);
-          await cashAccount.update(account => {
-            account.currentBalance = (account.currentBalance || 0) + amountPaid;
-          });
-
-          await database.get<AccountTransaction>('account_transactions').create(at => {
-            at.shopId = currentShop.id;
-            at.cashAccountId = cashAccountId;
-            at.transactionId = newTransaction.id;
-            at.paymentId = payment.id;
-            at.type = 'deposit';
-            at.amount = amountPaid;
-            at.balanceBefore = cashAccount.currentBalance - amountPaid;
-            at.balanceAfter = cashAccount.currentBalance;
-            at.description = `Sale payment - ${newTransaction.transactionNumber}`;
-            at.transactionDate = Date.now();
-            at.recordedBy = user.id;
-          });
-        }
-      }
-
-      if (balanceDue > 0) {
-        const receivableAccount = await database.get<CashAccount>('cash_accounts').find(receivableAccountId!);
-        
-        await database.get<AccountTransaction>('account_transactions').create(at => {
-          at.shopId = currentShop.id;
-          at.cashAccountId = receivableAccountId!;
-          at.transactionId = newTransaction.id;
-          at.type = 'receivable';
-          at.amount = balanceDue;
-          at.balanceBefore = receivableAccount.currentBalance;
-          at.balanceAfter = receivableAccount.currentBalance + balanceDue;
-          at.description = `Credit portion for sale to ${customers.find(c => c.id === selectedCustomer)?.name || 'customer'}`;
-          at.transactionDate = Date.now();
-          at.recordedBy = user.id;
+        // Create payment record
+        await database.get<Payment>('payments').create(p => {
+          p.transactionId = newTransaction.id;
+          p.referenceNumber = `PAY-${newTransaction.id}`;
+          p.shopId = currentShop.id;
+          p.paymentMethodId = 'cash';
+          p.cashAccountId = defaultCashAccount!.id;
+          p.amount = finalTotal;
+          p.paymentDate = Date.now();
+          p.notes = 'Cash payment for sale';
+          p.recordedBy = user.id;
         });
 
-        await receivableAccount.update(account => {
-          account.currentBalance = (account.currentBalance || 0) + balanceDue;
+        // Link payment to account transaction (optional, for reference)
+        // You could update the account transaction with paymentId if needed
+      }
+      
+      // ============================================
+      // CASE 2: CREDIT SALE (Full credit, no payment)
+      // ============================================
+      else if (paymentMode === 'credit' && amountPaid === 0) {
+        // Record the full credit sale as receivable
+        await createAccountTransaction(
+          receivableAccount!.id,
+          newTransaction.id,
+          undefined,
+          'receivable',
+          finalTotal,
+          `Credit sale to ${customers.find(c => c.id === selectedCustomer)?.name || 'customer'} - ${newTransaction.transactionNumber}`,
+          'sales',
+          newTransaction.transactionNumber
+        );
+      }
+      
+      // ============================================
+      // CASE 3: CREDIT SALE WITH PARTIAL PAYMENT
+      // ============================================
+      else if (paymentMode === 'credit' && amountPaid > 0) {
+        // 3.1: Record the full credit sale as receivable
+        await createAccountTransaction(
+          receivableAccount!.id,
+          newTransaction.id,
+          undefined,
+          'receivable',
+          finalTotal,
+          `Credit sale to ${customers.find(c => c.id === selectedCustomer)?.name || 'customer'} - ${newTransaction.transactionNumber}`,
+          'sales',
+          newTransaction.transactionNumber
+        );
+        
+        // 3.2: Create payment record for partial payment
+        const payment = await database.get<Payment>('payments').create(p => {
+          p.transactionId = newTransaction.id;
+          p.referenceNumber = `PAY-${newTransaction.id}`;
+          p.shopId = currentShop.id;
+          p.paymentMethodId = 'cash';
+          p.cashAccountId = defaultCashAccount!.id;
+          p.amount = amountPaid;
+          p.paymentDate = Date.now();
+          p.notes = `Partial payment for credit sale - ${newTransaction.transactionNumber}`;
+          p.recordedBy = user.id;
+        });
+        
+        // 3.3: Record cash deposit for the payment
+        await createAccountTransaction(
+          defaultCashAccount!.id,
+          newTransaction.id,
+          payment.id,
+          'deposit',
+          amountPaid,
+          `Partial payment received for credit sale - ${newTransaction.transactionNumber}`,
+          'payment',
+          newTransaction.transactionNumber
+        );
+        
+        // 3.4: Reduce receivable balance (negative amount to decrease)
+        await createAccountTransaction(
+          receivableAccount!.id,
+          newTransaction.id,
+          payment.id,
+          'receivable_payment',
+          amountPaid, // This will be subtracted in the helper
+          `Payment received for credit sale - ${newTransaction.transactionNumber}`,
+          'payment',
+          newTransaction.transactionNumber
+        );
+      }
+
+      // ============================================
+      // UPDATE STOCK MOVEMENTS
+      // ============================================
+      for (const item of cart) {
+        const product = products.find(p => p.id === item.productId)!;
+        const timestamp = Date.now();
+        const referenceId = `${timestamp}-${item.productId}`;
+
+        const productQuantity = (item.baseUnit === 'piece' || item.baseUnit === 'unite')
+          ? item.quantity
+          : product.convertToBaseUnit(item.quantity, item.unit);
+        
+        await StockService.recordMovement({
+          productId: item.productId,
+          shopId: currentShop.id,
+          quantity: productQuantity,
+          movementType: 'SALE',
+          customerId: paymentMode === 'credit' ? selectedCustomer : undefined,
+          referenceId: referenceId,
+          notes: `Sale - ${item.quantity} ${product.sellingUnit} of ${product.name}`,
+          recordedBy: user.id,
+          timestamp: timestamp
         });
       }
 
       return newTransaction;
     });
 
-    for (const item of cart) {
-      const product = products.find(p => p.id === item.productId)!;
-      const timestamp = Date.now();
-      const referenceId = `${timestamp}-${item.productId}`;
-
-      const productQuantity = (item.baseUnit === 'piece' || item.baseUnit === 'unite')
-        ? item.quantity
-        : product.convertToBaseUnit(item.quantity, item.unit);
-      
-      await StockService.recordMovement({
-        productId: item.productId,
-        shopId: currentShop.id,
-        quantity: productQuantity,
-        movementType: 'SALE',
-        customerId: paymentMode === 'credit' ? selectedCustomer : undefined,
-        referenceId: referenceId,
-        notes: `Sale - ${item.quantity} ${product.sellingUnit} of ${product.name}`,
-        recordedBy: user.id,
-        timestamp: timestamp
-      });
+    // Clear cart after successful transaction
+    if (setCart) {
+      setCart([]);
     }
-
-    clearCart(); // Clear cart after successful transaction
+    
     return transaction;
-  }, [currentShop, user, paymentMode, selectedCustomer, totalAmount, finalTotal, dueDate, creditTerms, cart, products, customers, creditPaymentAmount, clearCart]);
+  }, [currentShop, user, paymentMode, selectedCustomer, totalAmount, finalTotal, dueDate, creditTerms, cart, products, customers, creditPaymentAmount]);
 
   const processSale = useCallback(async () => {
     if (!validateSale()) return;
@@ -274,28 +362,25 @@ export function useSaleProcessor({
     setIsProcessingSale(true);
 
     try {
-      if (isOffline) {
-        await saveSaleToQueue();
+      await processSaleTransaction();
+
+      const customerName = customers.find(c => c.id === selectedCustomer)?.name || 'Customer';
+
+      if (paymentMode === 'cash') {
+        onSuccess({
+          title: 'Sale Completed',
+          description: `Total amount: ${finalTotal.toLocaleString()} BIF`,
+          variant: 'success',
+          icon: 'cash-outline',
+        });
       } else {
-        await processSaleTransaction();
-
-        const customerName = customers.find(c => c.id === selectedCustomer)?.name || 'Customer';
-
-        if (paymentMode === 'cash') {
-          onSuccess({
-            title: 'Sale Completed',
-            description: `Total amount: ₣${(finalTotal - creditPaymentAmount).toLocaleString('fr-FR')}`,
-            variant: 'success',
-            icon: 'cash-outline',
-          });
-        } else {
-          onSuccess({
-            title: 'Credit Sale Recorded',
-            description: `${customerName} owes ₣${(finalTotal - creditPaymentAmount).toLocaleString('fr-FR')}`,
-            variant: 'info',
-            icon: 'person-circle-outline',
-          });
-        }
+        const balanceDue = finalTotal - creditPaymentAmount;
+        onSuccess({
+          title: 'Credit Sale Recorded',
+          description: `${customerName} owes ${balanceDue.toLocaleString()} BIF`,
+          variant: 'info',
+          icon: 'person-circle-outline',
+        });
       }
     } catch (error: any) {
       console.error('Error recording sale:', error);
@@ -303,7 +388,7 @@ export function useSaleProcessor({
     } finally {
       setIsProcessingSale(false);
     }
-  }, [validateSale, isOffline, saveSaleToQueue, processSaleTransaction, paymentMode, finalTotal, customers, selectedCustomer, creditPaymentAmount, onSuccess, onError]);
+  }, [validateSale, processSaleTransaction, paymentMode, finalTotal, customers, selectedCustomer, creditPaymentAmount, onSuccess, onError]);
 
   return {
     paymentMode,

@@ -19,6 +19,7 @@ export interface CartItem {
   baseQuantity: number;
 }
 
+
 export interface QuickAmount {
   label: string;
   value: number;
@@ -351,6 +352,10 @@ export function useCart(products: Product[]) {
       ]
     );
   }, []);
+
+//   const clearCart = useCallback(() => {
+//   setCart([]);
+// }, []);
 
   const resetProductSelection = useCallback(() => {
     setSelectedProduct(null);

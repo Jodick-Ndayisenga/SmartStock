@@ -10,7 +10,7 @@ const syncColumns = [
 ];
 
 export default appSchema({
-  version: 2,
+  version: 3,
   tables: [
     // ─── SHOP ───────────────────────────────────────
     tableSchema({
@@ -59,6 +59,7 @@ export default appSchema({
 
         // Inventory control
         { name: 'low_stock_threshold', type: 'number' as const, isOptional: true },
+        { name: 'last_notified_at', type: 'number' },
         { name: 'is_active', type: 'boolean' as const },
         { name: 'is_perishable', type: 'boolean' as const },
         { name: 'default_expiry_days', type: 'number' as const, isOptional: true },

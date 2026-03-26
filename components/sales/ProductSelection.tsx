@@ -273,9 +273,11 @@ export default function ProductSelection({
                       {product.name}
                     </ThemedText>
                     <View className="flex-row items-center gap-3">
-                      <ThemedText variant="muted" size="sm">
-                        Stock: {product.formattedCurrentStock}
-                      </ThemedText>
+                      <ThemedText variant="muted" size="sm" className="mb-1">
+                      Stock: {(product.baseUnit === "piece" || product.baseUnit === "unite") 
+                        ? product.stockQuantity ?? 0 
+                        : product.formattedCurrentStock}
+                    </ThemedText>
                       <View className="w-1 h-1 rounded-full bg-border dark:bg-dark-border" />
                       <ThemedText variant="muted" size="sm">
                         ₣{product.sellingPricePerBase}/{product.sellingUnit || product.baseUnit}

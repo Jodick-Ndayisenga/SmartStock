@@ -913,7 +913,7 @@ export default function CashAccountsScreen() {
     <View className={`flex-1 ${isDark ? 'bg-dark-surface' : 'bg-surface-soft'}`}>
         <PremiumHeader title="Cash Accounts 💰" subtitle="Manage your financial accounts" showBackButton/>
       {/* Header */}
-      <View className="px-6 pt-4">
+      <View className="px-2 pt-4">
 
         {/* Stats Cards */}
         <View className="flex-row justify-between mb-4">
@@ -968,7 +968,7 @@ export default function CashAccountsScreen() {
           />
         )}
         keyExtractor={item => item.id}
-        contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 100 }}
+        contentContainerStyle={{ paddingHorizontal: 6, paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl

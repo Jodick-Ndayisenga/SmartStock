@@ -1,31 +1,31 @@
 // app/(auth)/create-shop.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  Alert,
   TouchableOpacity,
+  Animated,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import database from '@/database';
 import { useTranslation } from 'react-i18next';
 import { Q } from '@nozbe/watermelondb';
 import { Ionicons } from '@expo/vector-icons';
-//import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
-import SeedModal from '@/components/SeedModal';
-import CustomDialog from '@/components/ui/CustomDialog';
+import { LinearGradient } from 'expo-linear-gradient';
+import { MotiView } from 'moti';
 
 // Components
-import PremiumHeader from '@/components/layout/PremiumHeader';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
-import { ThemedText } from '@/components/ui/ThemedText';
+import { ThemedText, HeadingText, MutedText, CaptionText } from '@/components/ui/ThemedText';
 import { Loading } from '@/components/ui/Loading';
 import { Badge } from '@/components/ui/Badge';
+import CustomDialog from '@/components/ui/CustomDialog';
+import SeedModal from '@/components/SeedModal';
 
 // Models
 import { Shop } from '@/database/models/Shop';
@@ -38,18 +38,14 @@ import { generateEnhancedUUID } from '@/utils/getModelId';
 import { useAuth } from '@/context/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Helper functions for generating branch codes and shop names
 const generateBranchCode = (shopName: string = ''): string => {
-  // Extract first 3 letters of shop name (uppercase) or use 'SHOP'
   const prefix = shopName
     .trim()
     .toUpperCase()
-    .replace(/[^A-Z]/g, '') // Remove non-letters
+    .replace(/[^A-Z]/g, '')
     .slice(0, 3);
   
   const validPrefix = prefix.length >= 2 ? prefix : 'SHO';
-  
-  // Add random numbers and timestamp
   const timestamp = Date.now().toString().slice(-4);
   const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
   
@@ -65,37 +61,154 @@ const generateShopNameSuggestion = (userName: string = ''): string => {
     'Local Store',
     'Community Shop',
   ];
-  
-  // Pick a random suggestion
   return names[Math.floor(Math.random() * names.length)];
 };
 
-// const getLocation = async () => {
-//   let { status } = await Location.requestForegroundPermissionsAsync();
-//       if (status !== 'granted') {
-//         //setErrorMsg('Permission to access location was denied');
-//         return '';
-//       }else{
-//         let Userlocation = await Location.getCurrentPositionAsync({});
-//         console.log("📍 Current Location:", JSON.stringify(Userlocation));
-//         return JSON.stringify(Userlocation) || '';
-//       }
-// };
+// Animated Option Selector Component
+const OptionSelector = ({ options, value, onChange, label }: any) => {
+  const [selectedIndex, setSelectedIndex] = useState(
+    options.findIndex((opt: any) => opt.value === value)
+  );
 
+  const handleSelect = (index: number) => {
+    setSelectedIndex(index);
+    onChange(options[index].value);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  return (
+    <View>
+      {label && (
+        <ThemedText variant="label" size="sm" weight="medium" className="mb-2">
+          {label}
+        </ThemedText>
+      )}
+      <View className="flex-row gap-2">
+        {options.map((option: any, index: number) => (
+          <TouchableOpacity
+            key={option.value}
+            onPress={() => handleSelect(index)}
+            activeOpacity={0.7}
+            className="flex-1"
+          >
+            <Animated.View
+              style={{
+                transform: [{
+                  scale: selectedIndex === index ? 1.02 : 1
+                }],
+              }}
+            >
+              <LinearGradient
+                colors={
+                  selectedIndex === index
+                    ? ['#0ea5e9', '#0284c7']
+                    : ['#f1f5f9', '#e2e8f0']
+                }
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={{ borderRadius: 12 }}
+                className="py-3 px-4 items-center justify-center"
+              >
+                <ThemedText
+                  variant={selectedIndex === index ? "soft" : "muted"}
+                  weight={selectedIndex === index ? "semibold" : "regular"}
+                  className={selectedIndex === index ? "text-white" : ""}
+                >
+                  {option.label}
+                </ThemedText>
+              </LinearGradient>
+            </Animated.View>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+};
+
+// Feature Card Component
+const FeatureCard = ({ icon, title, description, delay }: any) => (
+  <MotiView
+    from={{ opacity: 0, translateX: -20 }}
+    animate={{ opacity: 1, translateX: 0 }}
+    transition={{ delay, type: 'spring' }}
+    className="flex-row items-center mb-4"
+  >
+    <LinearGradient
+      colors={['#0ea5e9', '#0284c7']}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={{ borderRadius: 12 }}
+      className="w-10 h-10 items-center justify-center mr-3"
+    >
+      <Ionicons name={icon} size={20} color="#fff" />
+    </LinearGradient>
+    <View className="flex-1">
+      <ThemedText variant="default" size="base" weight="semibold">
+        {title}
+      </ThemedText>
+      <CaptionText>{description}</CaptionText>
+    </View>
+  </MotiView>
+);
+
+// Stats Card for Edit Mode - Using elegant blue gradient
+const EditStatsCard = ({ shop, onDelete }: any) => (
+  <MotiView
+    from={{ opacity: 0, scale: 0.95 }}
+    animate={{ opacity: 1, scale: 1 }}
+    transition={{ type: 'spring', delay: 200 }}
+    className="mb-6"
+  >
+    <LinearGradient
+      colors={['#1e293b', '#0f172a']}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={{ borderRadius: 16 }}
+      className="py-5 px-2"
+    >
+      <View className="flex-row justify-between items-start">
+        <View className="flex-1">
+          <Badge variant="info" className="bg-brand/20 self-start mb-2 border border-brand/30">
+            <ThemedText variant="brand" size="xs" weight="medium">
+              EDIT MODE
+            </ThemedText>
+          </Badge>
+          <HeadingText size="lg" weight="bold" className="text-white">
+            {shop?.name}
+          </HeadingText>
+          <MutedText className="text-white/70 mt-1">
+            Branch: {shop?.branchCode}
+          </MutedText>
+          <MutedText className="text-white/50 text-xs mt-2">
+            Created: {new Date(shop?.createdAt).toLocaleDateString()}
+          </MutedText>
+        </View>
+        <TouchableOpacity
+          onPress={onDelete}
+          className="bg-red-500/20 p-2 rounded-lg border border-red-500/30"
+        >
+          <Ionicons name="trash-outline" size={20} color="#ef4444" />
+        </TouchableOpacity>
+      </View>
+    </LinearGradient>
+  </MotiView>
+);
+
+// Main Component
 export default function CreateShopScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { shopId } = useLocalSearchParams<{ shopId?: string }>();
   const { t } = useTranslation();
   const { user, switchShop, removeShop } = useAuth();
 
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [isEditMode, setIsEditMode] = useState(false);
   const [shopToDelete, setShopToDelete] = useState<Shop | null>(null);
-  const [isGettingLocation, setIsGettingLocation] = useState(false);
   const [showSeedModal, setShowSeedModal] = useState(false);
   
   // Dialog states
-  const [showLocationDialog, setShowLocationDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [showErrorDialog, setShowErrorDialog] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -104,63 +217,32 @@ export default function CreateShopScreen() {
   const [formData, setFormData] = useState({
     name: '',
     location: '',
-    phone: user?.phone || '',
+    phone: '',
     branchCode: '',
     currency: 'BIF',
     language: 'fr',
-    weekStartDay: 1, // Monday
+    weekStartDay: 1,
   });
 
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(0)).current;
 
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+      Animated.spring(slideAnim, {
+        toValue: 1,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
 
-
-  // 📍 Request location permission and get current location
-  // const getCurrentLocation = async () => {
-  //   try {
-  //     setIsGettingLocation(true);
-  //     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-  //     const { status } = await Location.requestForegroundPermissionsAsync();
-      
-  //     if (status !== 'granted') {
-  //       setShowLocationDialog(true);
-  //       return;
-  //     }
-
-  //     const location = await Location.getCurrentPositionAsync({
-  //       accuracy: Location.Accuracy.High,
-  //     });
-
-  //     // Get address details
-  //     const [address] = await Location.reverseGeocodeAsync({
-  //       latitude: location.coords.latitude,
-  //       longitude: location.coords.longitude,
-  //     });
-
-  //     if (address) {
-  //       const locationString = address 
-  //         ? [
-  //             address.street,
-  //             address.city,
-  //             address.region,
-  //             address.country,
-  //           ].filter(Boolean).join(', ')
-  //         : `${location.coords.latitude.toFixed(6)}, ${location.coords.longitude.toFixed(6)}`;
-        
-  //       setFormData(prev => ({ ...prev, location: locationString }));
-  //       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  //     }
-  //   } catch (error) {
-  //     console.error('Location error:', error);
-  //     setErrorMessage('Failed to get your location. Please enter manually.');
-  //     setShowErrorDialog(true);
-  //   } finally {
-  //     setIsGettingLocation(false);
-  //   }
-  // };
-
-  // 🏷️ Generate branch code from shop name
   const generateCodeFromName = () => {
     if (formData.name.trim()) {
       const newCode = generateBranchCode(formData.name);
@@ -172,7 +254,6 @@ export default function CreateShopScreen() {
     }
   };
 
-  // 💡 Suggest shop name based on user's name
   const suggestShopName = () => {
     if (user?.displayName) {
       const suggestion = generateShopNameSuggestion(user.displayName);
@@ -181,50 +262,37 @@ export default function CreateShopScreen() {
     }
   };
 
-  // 🔍 Load shop if editing
   useEffect(() => {
-    if (id) {
-      loadShopForEdit(id);
+    if (shopId) {
+      loadShopForEdit(shopId);
     } else {
       setIsEditMode(false);
       setShopToDelete(null);
       
-      // Auto-suggest shop name on new form
       const initialName = user?.displayName 
         ? generateShopNameSuggestion(user.displayName)
         : '';
       
-      // Auto-generate branch code
       const initialCode = generateBranchCode(initialName);
       
       setFormData({
         name: initialName,
-        location:'' ,
+        location: '',
         phone: user?.phone || '',
         branchCode: initialCode,
         currency: 'BIF',
         language: 'fr',
         weekStartDay: 1,
       });
+      setInitialLoading(false);
     }
-  }, [id, user]);
+  }, [shopId, user]);
 
   const loadShopForEdit = async (shopId: string) => {
     try {
-      setLoading(true);
+      setInitialLoading(true);
       const shop = await database.get<Shop>('shops').find(shopId);
       
-      const shopData = {
-        id: shop.id,
-        name: shop.name,
-        location: shop.location || '',
-        phone: shop.phone || '',
-        branchCode: shop.branchCode || '',
-        ownerId: shop.ownerId,
-        createdAt: shop.createdAt,
-        updatedAt: shop.updatedAt,
-      };
-
       const settings = await database
         .get<Setting>('settings')
         .query(Q.where('shop_id', shopId))
@@ -235,37 +303,36 @@ export default function CreateShopScreen() {
 
       const setting = settings[0];
       setFormData({
-        name: shopData.name,
-        location: shopData.location || '',
-        phone: shopData.phone || '',
-        branchCode: shopData.branchCode || '',
+        name: shop.name,
+        location: shop.location || '',
+        phone: shop.phone || '',
+        branchCode: shop.branchCode || '',
         currency: setting?.currency || 'BIF',
         language: setting?.language || 'fr',
         weekStartDay: setting?.weekStartDay ?? 1,
       });
     } catch (error) {
       console.error('Failed to load shop:', error);
-      setErrorMessage(t('createShop.errors.shopNotFound'));
+      setErrorMessage('Failed to load shop');
       setShowErrorDialog(true);
       router.back();
     } finally {
-      setLoading(false);
+      setInitialLoading(false);
     }
   };
 
   const validateForm = () => {
     const newErrors: { [key: string]: string } = {};
-    if (!formData.name.trim()) newErrors.name = t('createShop.errors.shopNameRequired');
-    if (!formData.location.trim()) newErrors.location = t('createShop.errors.locationRequired');
+    if (!formData.name.trim()) newErrors.name = 'Shop name is required';
+    if (!formData.location.trim()) newErrors.location = 'Location is required';
     if (!formData.branchCode.trim()) newErrors.branchCode = 'Branch code is required';
     if (formData.phone && !/^[+]*[(]{0,1}[0-9]{1,4}[)]{0,1}[-\s\./0-9]*$/.test(formData.phone)) {
-      newErrors.phone = t('createShop.errors.invalidPhone');
+      newErrors.phone = 'Invalid phone number';
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  // 💰 Create default cash account for the shop
   const createDefaultCashAccount = async (shopId: string) => {
     const cashAccountId = generateEnhancedUUID();
     
@@ -281,15 +348,12 @@ export default function CreateShopScreen() {
       record.isDefault = true;
       record.notes = 'Default cash account';
     });
-
-    console.log('✅ Default cash account created for shop:', shopId);
   };
 
-  // ✅ Handle CREATE or UPDATE
   const handleSaveShop = async () => {
     if (!validateForm()) return;
     if (!user) {
-      setErrorMessage(t('createShop.errors.userNotFound'));
+      setErrorMessage('User not found');
       setShowErrorDialog(true);
       return;
     }
@@ -299,7 +363,7 @@ export default function CreateShopScreen() {
     try {
       await database.write(async () => {
         if (isEditMode && shopToDelete) {
-          // 🔁 UPDATE existing shop & settings
+          // UPDATE existing shop
           await shopToDelete.update(record => {
             record.name = formData.name.trim();
             record.location = formData.location.trim();
@@ -320,19 +384,6 @@ export default function CreateShopScreen() {
               record.weekStartDay = formData.weekStartDay;
               record.updatedAt = new Date();
             });
-          } else {
-            // Create settings if they don't exist
-            await database.get<Setting>('settings').create(record => {
-              record.shopId = shopToDelete.id;
-              record.language = formData.language;
-              record.currency = formData.currency;
-              record.weekStartDay = formData.weekStartDay;
-              record.backupEnabled = true;
-              record.smsAlertsEnabled = true;
-              record.autoBackupWifiOnly = true;
-              record.createdAt = new Date();
-              record.updatedAt = new Date();
-            });
           }
 
           setShowSuccessDialog(true);
@@ -343,7 +394,7 @@ export default function CreateShopScreen() {
             }
           });
         } else {
-          // ➕ CREATE new shop
+          // CREATE new shop
           const shopId = generateEnhancedUUID();
           const branchCode = formData.branchCode.trim() || generateBranchCode(formData.name);
 
@@ -354,9 +405,10 @@ export default function CreateShopScreen() {
             record.location = formData.location.trim();
             record.phone = formData.phone.trim() || undefined;
             record.branchCode = branchCode;
+            record.createdAt = new Date();
+            record.updatedAt = new Date();
           });
 
-          // Create default settings
           await database.get<Setting>('settings').create(record => {
             record.shopId = shop.id;
             record.language = formData.language;
@@ -365,21 +417,22 @@ export default function CreateShopScreen() {
             record.backupEnabled = true;
             record.smsAlertsEnabled = true;
             record.autoBackupWifiOnly = true;
+            record.createdAt = new Date();
+            record.updatedAt = new Date();
           });
 
-          // Create owner membership
           await database.get<Membership>('memberships').create(record => {
             record.userId = user.id;
             record.shopId = shop.id;
             record.role = 'owner';
             record.status = 'active';
             record.joinedAt = Date.now();
+            record.createdAt = new Date();
+            record.updatedAt = new Date();
           });
 
-          // 💰 Create default cash account
           await createDefaultCashAccount(shop.id);
-
-          switchShop(shop.id);
+          await switchShop(shop.id);
           
           setShowSuccessDialog(true);
           setDialogAction({
@@ -393,9 +446,7 @@ export default function CreateShopScreen() {
     } catch (error) {
       console.error('Error saving shop:', error);
       setErrorMessage(
-        isEditMode 
-          ? t('createShop.errors.updateFailed') 
-          : t('createShop.errors.creationFailed')
+        isEditMode ? 'Failed to update shop' : 'Failed to create shop'
       );
       setShowErrorDialog(true);
     } finally {
@@ -403,18 +454,13 @@ export default function CreateShopScreen() {
     }
   };
 
-  // 🗑️ Delete shop (with confirmation) - Only for owners
   const handleDeleteShop = () => {
     if (!shopToDelete || shopToDelete.ownerId !== user?.id) {
-      setErrorMessage(t('createShop.errors.deleteNotAllowed'));
+      setErrorMessage('You don\'t have permission to delete this shop');
       setShowErrorDialog(true);
       return;
     }
-
-    setShowLocationDialog(true);
-    setDialogAction({
-      onConfirm: confirmDeleteShop
-    });
+    setShowDeleteDialog(true);
   };
 
   const confirmDeleteShop = async () => {
@@ -423,7 +469,6 @@ export default function CreateShopScreen() {
     setLoading(true);
     try {
       await database.write(async () => {
-        // Delete related data first
         const settings = await database.get<Setting>('settings')
           .query(Q.where('shop_id', shopToDelete.id))
           .fetch();
@@ -448,16 +493,6 @@ export default function CreateShopScreen() {
           .query(Q.where('shop_id', shopToDelete.id))
           .fetch();
 
-        console.log({
-          "Deleting Found settings: ": settings.length,
-          "Deleting Found memberships: ": memberships.length,
-          "Deleting Found products: ": products.length,
-          "Deleting Found stockMovements: ": stockMovements.length,
-          "Deleting Found contacts: ": contacts.length,
-          "Deleting Found cashAccounts: ": cashAccounts.length
-        });
-
-        // Delete all related records
         await Promise.all([
           ...settings.map(s => s.destroyPermanently()),
           ...memberships.map(m => m.destroyPermanently()),
@@ -483,34 +518,54 @@ export default function CreateShopScreen() {
       
     } catch (error) {
       console.error('Delete error:', error);
-      setErrorMessage(t('createShop.errors.deleteFailed'));
+      setErrorMessage('Failed to delete shop');
       setShowErrorDialog(true);
     } finally {
       setLoading(false);
+      setShowDeleteDialog(false);
     }
   };
 
-  const updateFormData = (field: string, value: string) => {
+  const updateFormData = (field: string, value: string | number) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }));
   };
 
-  if (loading && !isEditMode && !id) {
+  if (initialLoading) {
     return (
-      <View className="flex-1 bg-surface dark:bg-dark-surface">
-        <PremiumHeader title={t('createShop.title')} showBackButton={true} />
-        <Loading text={t('createShop.creatingShop')} />
+      <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
+        <Loading text={isEditMode ? "Loading shop..." : "Setting up..."} />
       </View>
     );
   }
 
   return (
-    <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft py-2">
-      <PremiumHeader
-        title={isEditMode ? t('createShop.editTitle') : t('createShop.title')}
-        showBackButton={true}
-        showProfile={true}
-      />
+    <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
+      {/* Animated Header - Unified blue theme with subtle difference */}
+      <LinearGradient
+        colors={isEditMode ? ['#0f172a', '#1e293b'] : ['#0ea5e9', '#0284c7']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        className="pt-12 pb-6 px-2"
+      >
+        <Animated.View style={{ opacity: fadeAnim }}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            className="w-10 h-10 rounded-full bg-white/20 items-center justify-center mb-4"
+          >
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </TouchableOpacity>
+          
+          <HeadingText size="3xl" weight="bold" className="text-white mb-1">
+            {isEditMode ? 'Edit Shop' : 'Create New Shop'}
+          </HeadingText>
+          <MutedText className="text-white/80">
+            {isEditMode 
+              ? 'Update your shop information and preferences' 
+              : 'Set up your business location and preferences'}
+          </MutedText>
+        </Animated.View>
+      </LinearGradient>
 
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
@@ -519,283 +574,243 @@ export default function CreateShopScreen() {
         <ScrollView
           className="flex-1"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: isEditMode ? 160 : 100 }}
+          contentContainerStyle={{ paddingBottom: 180 }}
         >
-          <View className="p-4 mb-6">
-            {/* Welcome Card with Quick Actions */}
+          <View className="py-4 px-2">
+            {/* Edit Mode Stats Card */}
+            {isEditMode && shopToDelete && (
+              <EditStatsCard 
+                shop={shopToDelete} 
+                onDelete={handleDeleteShop}
+              />
+            )}
+
+            {/* Welcome Card - Only for Create Mode */}
             {!isEditMode && (
-              <Card className="mb-6 bg-brand/5 border-brand/20">
-                <CardContent className="p-4">
+              <MotiView
+                from={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ type: 'spring', delay: 200 }}
+                className="mb-6"
+              >
+                <LinearGradient
+                  colors={['rgba(14,165,233,0.1)', 'rgba(14,165,233,0.05)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={{ borderRadius: 16 }}
+                  className="py-5 px-2"
+                >
                   <View className="flex-row items-start">
-                    <Ionicons name="storefront-outline" size={24} color="#0ea5e9" className="mr-3 mt-1" />
+                    <LinearGradient
+                      colors={['#0ea5e9', '#0284c7']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={{ borderRadius: 12 }}
+                      className="w-12 h-12 items-center justify-center mr-4"
+                    >
+                      <Ionicons name="rocket-outline" size={24} color="#fff" />
+                    </LinearGradient>
                     <View className="flex-1">
-                      <ThemedText variant="brand" size="lg" className="font-semibold mb-1">
-                        {t('createShop.welcomeTitle')}
-                      </ThemedText>
-                      <ThemedText variant="muted">
-                        {t('createShop.welcomeDescription')}
-                      </ThemedText>
+                      <HeadingText size="base" weight="semibold" className="mb-1">
+                        Welcome to SmartStock!
+                      </HeadingText>
+                      <MutedText size="sm">
+                        Let's set up your shop. We'll help you get started quickly.
+                      </MutedText>
                       
-                      {/* Quick Action Buttons */}
-                      <View className="flex-row mt-3 gap-2">
+                      <View className="flex-row mt-4 gap-2">
                         <TouchableOpacity
                           onPress={suggestShopName}
-                          className="flex-row items-center bg-surface-soft dark:bg-dark-surface-soft px-3 py-2 rounded-lg"
+                          className="flex-row items-center bg-surface dark:bg-dark-surface px-3 py-2 rounded-lg"
                         >
                           <Ionicons name="bulb-outline" size={16} color="#0ea5e9" />
                           <ThemedText variant="brand" size="xs" className="ml-1">
                             Suggest Name
                           </ThemedText>
                         </TouchableOpacity>
-
-                        <TouchableOpacity
-                          //onPress={getCurrentLocation}
-                          disabled={isGettingLocation}
-                          className="flex-row items-center bg-surface-soft dark:bg-dark-surface-soft px-3 py-2 rounded-lg"
-                        >
-                          <Ionicons 
-                            name={isGettingLocation ? "locate" : "location-outline"} 
-                            size={16} 
-                            color="#0ea5e9" 
-                          />
-                          <ThemedText variant="brand" size="xs" className="ml-1">
-                            {isGettingLocation ? 'Getting...' : 'Get Location'}
-                          </ThemedText>
-                        </TouchableOpacity>
                       </View>
                     </View>
                   </View>
-                </CardContent>
-              </Card>
+                </LinearGradient>
+              </MotiView>
             )}
 
-            {/* Edit Mode Badge */}
-            {isEditMode && (
-              <Card className="mb-6 bg-warning/5 border-warning/20">
-                <CardContent className="p-4">
-                  <View className="flex-row items-center">
-                    <Badge variant="warning" className="mr-3">
-                      {t('createShop.editMode')}
-                    </Badge>
-                    <ThemedText variant="muted" size="sm">
-                      {t('createShop.editDescription')}
-                    </ThemedText>
-                  </View>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Shop Information Form */}
-            <Card className="mb-6">
-              <CardHeader 
-                title={t('createShop.shopInfo')}
-                subtitle={t('createShop.shopInfoDescription')}
-              />
-              <CardContent className="space-y-4">
-                <Input
-                  label={t('createShop.shopName')}
-                  placeholder={t('createShop.shopNamePlaceholder')}
-                  value={formData.name}
-                  onChangeText={(text) => {
-                    updateFormData('name', text);
-                  }}
-                  error={errors.name}
-                  autoFocus={!isEditMode}
-                  rightIcon="bulb-outline"
-                  onRightIconPress={suggestShopName}
+            {/* Main Form Card */}
+            <MotiView
+              from={{ opacity: 0, translateY: 30 }}
+              animate={{ opacity: 1, translateY: 0 }}
+              transition={{ type: 'spring', delay: isEditMode ? 300 : 300 }}
+            >
+              <Card variant="elevated" className="mb-6">
+                <CardHeader 
+                  title={isEditMode ? "Shop Information" : "Basic Information"}
+                  subtitle={isEditMode 
+                    ? "Update your shop details" 
+                    : "Tell us about your business"}
                 />
-
-                <View>
+                <CardContent className="gap-4">
                   <Input
-                    label={t('createShop.location')}
-                    placeholder={t('createShop.locationPlaceholder')}
+                    label="Shop Name"
+                    placeholder="Enter your shop name"
+                    value={formData.name}
+                    onChangeText={(text) => updateFormData('name', text)}
+                    error={errors.name}
+                    autoFocus={!isEditMode}
+                    rightIcon={!isEditMode ? "bulb-outline" : undefined}
+                    onRightIconPress={!isEditMode ? suggestShopName : undefined}
+                  />
+
+                  <Input
+                    label="Location"
+                    placeholder="Enter shop address"
                     value={formData.location}
                     onChangeText={(text) => updateFormData('location', text)}
                     error={errors.location}
-                    rightIcon={isGettingLocation ? "locate" : "location-outline"}
-                   // onRightIconPress={getCurrentLocation}
-                    //rightIconDisabled={isGettingLocation}
+                    rightIcon="location-outline"
                   />
-                  {isGettingLocation && (
-                    <ThemedText variant="muted" size="xs" className="mt-1">
-                      Getting your current location...
-                    </ThemedText>
-                  )}
-                </View>
 
-                <Input
-                  label={t('createShop.phone')}
-                  placeholder={t('createShop.phonePlaceholder')}
-                  value={formData.phone}
-                  onChangeText={(text) => updateFormData('phone', text)}
-                  error={errors.phone}
-                  keyboardType="phone-pad"
-                />
-
-                <View>
                   <Input
-                    label={t('createShop.branchCode')}
-                    placeholder={t('createShop.branchCodePlaceholder')}
-                    value={formData.branchCode}
-                    onChangeText={(text) => updateFormData('branchCode', text)}
-                    error={errors.branchCode}
-                    rightIcon="refresh-outline"
-                    onRightIconPress={generateCodeFromName}
+                    label="Phone Number"
+                    placeholder="Enter contact number"
+                    value={formData.phone}
+                    onChangeText={(text) => updateFormData('phone', text)}
+                    error={errors.phone}
+                    keyboardType="phone-pad"
                   />
-                  <ThemedText variant="muted" size="xs" className="mt-1">
-                    {formData.name 
-                      ? `Suggested: ${generateBranchCode(formData.name)}` 
-                      : 'Enter a name to get branch code suggestions'}
-                  </ThemedText>
-                </View>
-              </CardContent>
-            </Card>
 
-            {/* Settings Card */}
-            <Card className="mb-6">
-              <CardHeader 
-                title={t('createShop.settings')}
-                subtitle={t('createShop.settingsDescription')}
-              />
-              <CardContent className="gap-4">
-                <View className="flex-row gap-4">
-                  <View className="flex-1">
-                    <ThemedText variant="label" size="sm" className="mb-2">
-                      {t('createShop.currency')}
-                    </ThemedText>
-                    <View className="flex-row border border-border rounded-base overflow-hidden">
-                      {['BIF', 'USD', 'EUR'].map((currency) => (
-                        <TouchableOpacity
-                          key={currency}
-                          onPress={() => updateFormData('currency', currency)}
-                          className={`
-                            flex-1 py-3 items-center justify-center
-                            ${formData.currency === currency 
-                              ? 'bg-brand border-brand' 
-                              : 'bg-surface-soft border-border'}
-                          `}
-                        >
-                          <ThemedText 
-                            variant={formData.currency === currency ? "soft" : "label"}
-                            size="sm"
-                          >
-                            {currency}
-                          </ThemedText>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
+                  <View>
+                    <Input
+                      label="Branch Code"
+                      placeholder="Unique branch identifier"
+                      value={formData.branchCode}
+                      onChangeText={(text) => updateFormData('branchCode', text)}
+                      error={errors.branchCode}
+                      rightIcon="refresh-outline"
+                      onRightIconPress={generateCodeFromName}
+                    />
+                    {!isEditMode && formData.name && (
+                      <CaptionText className="mt-1">
+                        Suggested: {generateBranchCode(formData.name)}
+                      </CaptionText>
+                    )}
                   </View>
-
-                  <View className="flex-1">
-                    <ThemedText variant="label" size="sm" className="mb-2">
-                      {t('createShop.language')}
-                    </ThemedText>
-                    <View className="flex-row border border-border rounded-base overflow-hidden">
-                      {[
-                        { value: 'fr', label: 'Français' },
-                        { value: 'en', label: 'English' },
-                        { value: 'rn', label: 'Kirundi' }
-                      ].map((lang) => (
-                        <TouchableOpacity
-                          key={lang.value}
-                          onPress={() => updateFormData('language', lang.value)}
-                          className={`
-                            flex-1 py-3 items-center justify-center
-                            ${formData.language === lang.value 
-                              ? 'bg-brand border-brand' 
-                              : 'bg-surface-soft border-border'}
-                          `}
-                        >
-                          <ThemedText 
-                            variant={formData.language === lang.value ? "soft" : "label"}
-                            size="sm"
-                            className="text-center"
-                          >
-                            {lang.label}
-                          </ThemedText>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </View>
-                </View>
-
-                <View>
-                  <ThemedText variant="label" size="sm" className="mb-2">
-                    {t('createShop.weekStart')}
-                  </ThemedText>
-                  <View className="flex-row border border-border rounded-base overflow-hidden">
-                    {[
-                      { value: 0, label: t('createShop.sunday') },
-                      { value: 1, label: t('createShop.monday') }
-                    ].map((day) => (
-                      <TouchableOpacity
-                        key={day.value}
-                        onPress={() => updateFormData('weekStartDay', day.value.toString())}
-                        className={`
-                          flex-1 py-3 items-center justify-center
-                          ${formData.weekStartDay === day.value 
-                            ? 'bg-brand border-brand' 
-                            : 'bg-surface-soft border-border'}
-                        `}
-                      >
-                        <ThemedText 
-                          variant={formData.weekStartDay === day.value ? "soft" : "label"}
-                          size="sm"
-                        >
-                          {day.label}
-                        </ThemedText>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-              </CardContent>
-            </Card>
-
-            {/* Features Card - Only show for new shops */}
-            {!isEditMode && (
-              <Card className="mb-6">
-                <CardHeader 
-                  title={t('createShop.featuresTitle')}
-                  subtitle={t('createShop.featuresDescription')}
-                />
-                <CardContent>
-                  {[
-                    { icon: '📦', text: t('createShop.feature1') },
-                    { icon: '💰', text: t('createShop.feature2') },
-                    { icon: '📊', text: t('createShop.feature3') },
-                    { icon: '🌐', text: t('createShop.feature4') },
-                  ].map((feature, index) => (
-                    <View key={index} className="flex-row items-center mb-3 last:mb-0">
-                      <ThemedText variant="muted" size="sm" className="flex-1">
-                        {feature.text}
-                      </ThemedText>
-                    </View>
-                  ))}
                 </CardContent>
               </Card>
+            </MotiView>
+
+            {/* Settings Card */}
+            <MotiView
+              from={{ opacity: 0, translateY: 30 }}
+              animate={{ opacity: 1, translateY: 0 }}
+              transition={{ type: 'spring', delay: isEditMode ? 400 : 400 }}
+            >
+              <Card variant="elevated" className="mb-6">
+                <CardHeader 
+                  title="Preferences"
+                  subtitle="Customize your shop settings"
+                />
+                <CardContent className="gap-5">
+                  <OptionSelector
+                    label="Currency"
+                    options={[
+                      { value: 'BIF', label: 'BIF (₣)' },
+                      { value: 'USD', label: 'USD ($)' },
+                      { value: 'EUR', label: 'EUR (€)' }
+                    ]}
+                    value={formData.currency}
+                    onChange={(value: string) => updateFormData('currency', value)}
+                  />
+
+                  <OptionSelector
+                    label="Language"
+                    options={[
+                      { value: 'fr', label: 'Français' },
+                      { value: 'en', label: 'English' },
+                      { value: 'rn', label: 'Kirundi' }
+                    ]}
+                    value={formData.language}
+                    onChange={(value: string) => updateFormData('language', value)}
+                  />
+
+                  <OptionSelector
+                    label="Week Start Day"
+                    options={[
+                      { value: 0, label: 'Sunday' },
+                      { value: 1, label: 'Monday' }
+                    ]}
+                    value={formData.weekStartDay}
+                    onChange={(value: number) => updateFormData('weekStartDay', value)}
+                  />
+                </CardContent>
+              </Card>
+            </MotiView>
+
+            {/* Features Card - Only for Create Mode */}
+            {!isEditMode && (
+              <MotiView
+                from={{ opacity: 0, translateY: 30 }}
+                animate={{ opacity: 1, translateY: 0 }}
+                transition={{ type: 'spring', delay: 500 }}
+              >
+                <Card variant="elevated">
+                  <CardHeader 
+                    title="What You'll Get"
+                    subtitle="Everything you need to manage your business"
+                  />
+                  <CardContent>
+                    <FeatureCard
+                      icon="cube-outline"
+                      title="Inventory Management"
+                      description="Track stock levels, set alerts, and manage products"
+                      delay={600}
+                    />
+                    <FeatureCard
+                      icon="cash-outline"
+                      title="Sales & Transactions"
+                      description="Record sales, track revenue, and manage payments"
+                      delay={650}
+                    />
+                    <FeatureCard
+                      icon="people-outline"
+                      title="Staff Management"
+                      description="Add team members and manage permissions"
+                      delay={700}
+                    />
+                    <FeatureCard
+                      icon="bar-chart-outline"
+                      title="Analytics & Reports"
+                      description="Get insights into your business performance"
+                      delay={750}
+                    />
+                  </CardContent>
+                </Card>
+              </MotiView>
             )}
           </View>
         </ScrollView>
 
-        {showSeedModal && (
-          <SeedModal
-            visible={showSeedModal}
-            onClose={() => setShowSeedModal(false)}
-          />
-        )}
-
         {/* Fixed Action Buttons */}
-        <View className="absolute bottom-0 left-0 right-0 p-6 bg-surface dark:bg-dark-surface border-t border-border">
+        <Animated.View
+          style={{
+            transform: [{
+              translateY: slideAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [100, 0],
+              }),
+            }],
+          }}
+          className="absolute bottom-0 left-0 right-0 p-6 bg-surface dark:bg-dark-surface border-t border-border"
+        >
           {isEditMode ? (
             <View className="gap-3">
               <Button
                 variant="default"
                 size="lg"
                 onPress={handleSaveShop}
-                disabled={loading}
-                className="shadow-button"
+                loading={loading}
+                icon="save-outline"
               >
-                {loading ? t('common.saving') : t('createShop.updateButton')}
+                Update Shop
               </Button>
 
               {shopToDelete?.ownerId === user?.id && (
@@ -804,10 +819,9 @@ export default function CreateShopScreen() {
                   size="lg"
                   onPress={handleDeleteShop}
                   disabled={loading}
-                  iconPosition='left'
-                  icon='trash'
+                  icon="trash-outline"
                 >
-                  {loading ? t('common.deleting') : t('createShop.deleteButton')}
+                  Delete Shop
                 </Button>
               )}
             </View>
@@ -816,86 +830,42 @@ export default function CreateShopScreen() {
               variant="default"
               size="lg"
               onPress={handleSaveShop}
-              disabled={loading || !formData.name.trim() || !formData.location.trim()}
-              className="shadow-button"
+              loading={loading}
+              disabled={!formData.name.trim() || !formData.location.trim()}
+              icon="checkmark-circle-outline"
             >
-              {loading ? t('common.creating') : t('createShop.createButton')}
+              Create Shop
             </Button>
           )}
-
-          <ThemedText variant="muted" size="sm" className="text-center mt-3">
-            {t('createShop.termsNotice')}
-          </ThemedText>
-        </View>
+          
+          <CaptionText align="center" className="mt-3">
+            {isEditMode 
+              ? 'Changes will be saved immediately' 
+              : 'By creating a shop, you agree to our Terms of Service'}
+          </CaptionText>
+        </Animated.View>
       </KeyboardAvoidingView>
 
-      {/* Location Permission Dialog */}
-      <CustomDialog
-        visible={showLocationDialog && !dialogAction.onConfirm}
-        title="Location Permission"
-        description="We need your location to auto-fill your shop address. Would you like to enable location access?"
-        variant="info"
-        icon="location-outline"
-        showCancel={true}
-        cancelLabel="Enter Manually"
-        onCancel={() => setShowLocationDialog(false)}
-        actions={[
-          {
-            label: 'Enable Location',
-            variant: 'default',
-            onPress: () => {
-              setShowLocationDialog(false);
-              //getCurrentLocation();
-            },
-          },
-        ]}
-        onClose={() => setShowLocationDialog(false)}
-      />
+      {/* Modals */}
+      {showSeedModal && (
+        <SeedModal
+          visible={showSeedModal}
+          onClose={() => setShowSeedModal(false)}
+        />
+      )}
 
-      {/* Delete Confirmation Dialog */}
-      <CustomDialog
-        visible={showLocationDialog && dialogAction.onConfirm !== undefined}
-        title={t('createShop.deleteTitle')}
-        description={t('createShop.deleteConfirm')}
-        variant="error"
-        icon="trash-outline"
-        showCancel={true}
-        cancelLabel={t('common.cancel')}
-        onCancel={() => {
-          setShowLocationDialog(false);
-          setDialogAction({});
-        }}
-        actions={[
-          {
-            label: t('common.delete'),
-            variant: 'destructive',
-            onPress: async () => {
-              setShowLocationDialog(false);
-              await dialogAction.onConfirm?.();
-              setDialogAction({});
-            },
-          },
-        ]}
-        onClose={() => {
-          setShowLocationDialog(false);
-          setDialogAction({});
-        }}
-      />
-
-      {/* Success Dialog */}
       <CustomDialog
         visible={showSuccessDialog}
-        title={isEditMode ? t('common.success') : t('createShop.success.created')}
+        title={isEditMode ? "Success!" : "Shop Created!"}
         description={isEditMode 
-          ? t('createShop.success.updated') 
-          : t('createShop.success.createdDescription')
+          ? "Your shop has been updated successfully" 
+          : "Your shop has been created! Let's add some products to get started."
         }
         variant="success"
         icon="checkmark-circle"
-        showCancel={false}
         actions={[
           {
-            label: 'OK',
+            label: 'Continue',
             variant: 'default',
             onPress: () => {
               setShowSuccessDialog(false);
@@ -911,14 +881,12 @@ export default function CreateShopScreen() {
         }}
       />
 
-      {/* Error Dialog */}
       <CustomDialog
         visible={showErrorDialog}
-        title={t('common.error')}
+        title="Oops!"
         description={errorMessage}
         variant="error"
         icon="alert-circle"
-        showCancel={false}
         actions={[
           {
             label: 'OK',
@@ -933,6 +901,25 @@ export default function CreateShopScreen() {
           setShowErrorDialog(false);
           setErrorMessage('');
         }}
+      />
+
+      <CustomDialog
+        visible={showDeleteDialog}
+        title="Delete Shop?"
+        description="Are you sure you want to delete this shop? This action cannot be undone and will remove all associated data including products, transactions, and staff members."
+        variant="error"
+        icon="trash-outline"
+        showCancel={true}
+        cancelLabel="Cancel"
+        onCancel={() => setShowDeleteDialog(false)}
+        actions={[
+          {
+            label: 'Delete Permanently',
+            variant: 'destructive',
+            onPress: confirmDeleteShop,
+          },
+        ]}
+        onClose={() => setShowDeleteDialog(false)}
       />
     </View>
   );

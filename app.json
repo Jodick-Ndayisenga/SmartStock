@@ -24,8 +24,19 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.jodick.Magasin",
       "permissions": [
-        "android.permission.RECORD_AUDIO"
-      ]
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.USE_EXACT_ALARM"
+      ],
+      "notification": {
+        "icon": "./assets/images/notificaion-icon.png",
+        "color": "#0ea5e9",
+        "sound": "./assets/audio/notification.mp3"
+      }
     },
     "web": {
       "output": "static",
@@ -61,6 +72,11 @@
                 "modular_headers": true
               }
             ]
+          },
+          "android": {
+            "compileSdkVersion": 34,
+            "targetSdkVersion": 34,
+            "buildToolsVersion": "34.0.0"
           }
         }
       ],
@@ -85,6 +101,16 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#0ea5e9",
+          "sounds": ["./assets/audio/notification_success.mp3", "./assets/audio/notification_warning.mp3", "./assets/audio/notification_error.mp3"],
+          "androidMode": "default",
+          "androidCollapsedTitle": "Magasin Alert"
+        }
       ]
     ],
     "experiments": {
@@ -93,4 +119,3 @@
     }
   }
 }
-
