@@ -15,6 +15,7 @@ import { formatCurrency } from '@/utils/dashboardUtils';
 import { useRouter } from 'expo-router';
 import { useColorScheme } from 'nativewind';
 import { LinearGradient } from 'expo-linear-gradient';
+import { of } from '@nozbe/watermelondb/utils/rx';
 
 interface CashFlowData {
   totalInflow: number;
@@ -534,8 +535,8 @@ const enhance = withObservables(
   ({ currentShop, timeRange = 'month' }: { currentShop: any; timeRange?: string }) => {
     if (!currentShop) {
       return {
-        transactions: [],
-        payments: [],
+        transactions: of([]),
+        payments: of([]), // or [],
       };
     }
 

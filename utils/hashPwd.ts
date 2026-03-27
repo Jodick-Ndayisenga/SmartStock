@@ -11,7 +11,7 @@ bcrypt.setRandomFallback((len) => {
 /**
  * Hash a password
  */
-export async function hashPassword(password) {
+export async function hashPassword(password: string) {
   if (typeof password !== 'string') {
     throw new Error('Password must be a string');
   }
@@ -23,7 +23,7 @@ export async function hashPassword(password) {
 /**
  * Compare password with hash
  */
-export async function verifyPassword(password, hash) {
+export async function verifyPassword(password: string, hash: string) {
   if (typeof password !== 'string' || typeof hash !== 'string') {
     throw new Error('Invalid input types');
   }

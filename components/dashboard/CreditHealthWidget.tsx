@@ -13,6 +13,7 @@ import Transaction from '@/database/models/Transaction';
 import { formatCurrency, formatPercent } from '@/utils/dashboardUtils';
 import { useRouter } from 'expo-router';
 import { useColorScheme } from 'nativewind';
+import { of } from '@nozbe/watermelondb/utils/rx';
 
 interface CreditData {
   outstanding: number;
@@ -291,8 +292,8 @@ const enhance = withObservables(
   ({ currentShop }: { currentShop: any }) => {
     if (!currentShop) {
       return {
-        creditTransactions: [],
-        allCreditSales: [],
+        creditTransactions: of([]), // or [],
+        allCreditSales: of([]), // or [],
       };
     }
 

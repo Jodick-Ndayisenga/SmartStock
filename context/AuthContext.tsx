@@ -43,6 +43,9 @@ interface AuthContextValue {
   isConnected: boolean;
   connectionType: 'wifi' | 'cellular' | 'none' | 'unknown';
   isWifi: boolean;
+
+  selectedTheme: 'light' | 'dark';
+  setUserTheme: (theme: 'light' | 'dark') => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -53,7 +56,9 @@ const STORAGE_KEYS = {
   FIRST_TIME: '@magasin_is_first_time',
   IS_FIRST_TIME: '@magasin_is_first_time',
   HAS_SEEDS: '@magasin_has_seeds',
-  SESSION_EXPIRY: '@magasin_session_expiry' // NEW
+  SESSION_EXPIRY: '@magasin_session_expiry', // NEW
+  // add theme in storage
+  USER_THEME: '@magasin_user_theme'
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -73,6 +78,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isConnected, setIsConnected] = useState(false);
   const [connectionType, setConnectionType] = useState<'wifi' | 'cellular' | 'none' | 'unknown'>('unknown');
   const [isWifi, setIsWifi] = useState(false);
+
+  // Theme state
+  const [selectedTheme, setSelectedTheme] = useState<'light' | 'dark'>('light');
 
   // Computed property for authentication status
   const isAuthenticated = !!user && sessionValidated;
@@ -168,12 +176,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const init = async () => {
       setLoading(true);
       try {
-        const [savedUid, savedShopId, firstTimeFlag, savedHasSeeds, savedExpiry] = await Promise.all([
+        const [savedUid, savedShopId, firstTimeFlag, savedHasSeeds, savedExpiry, savedTheme] = await Promise.all([
           AsyncStorage.getItem(STORAGE_KEYS.USER_UID),
           AsyncStorage.getItem(STORAGE_KEYS.SHOP_ID),
           AsyncStorage.getItem(STORAGE_KEYS.FIRST_TIME),
           AsyncStorage.getItem(STORAGE_KEYS.HAS_SEEDS),
-          AsyncStorage.getItem(STORAGE_KEYS.SESSION_EXPIRY)
+          AsyncStorage.getItem(STORAGE_KEYS.SESSION_EXPIRY),
+          AsyncStorage.getItem(STORAGE_KEYS.USER_THEME)
         ]);
 
         // Parse hasSeeds
@@ -203,6 +212,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           } catch (err) {
             console.error('Failed to load saved shop:', err);
           }
+        }
+
+        // Set theme
+        if (typeof savedTheme === 'string' && savedTheme) {
+          setSelectedTheme(savedTheme as 'light' | 'dark');
         }
         
         console.log('Onboarding flag:', { 
@@ -283,6 +297,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw err;
     }
   };
+
+
+  const setUserTheme = async (theme: 'light' | 'dark') => {
+    setSelectedTheme(theme);
+    await AsyncStorage.setItem(STORAGE_KEYS.USER_THEME, theme);
+  }
 
   // 🔹 Handle returning or created user
   const handleUserLogin = async (user: User) => {
@@ -405,6 +425,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Temporary contact
         tempSelectedContact,
         setTempSelectedContact,
+
+        selectedTheme,
+        setUserTheme
       }}
     >
       {children}

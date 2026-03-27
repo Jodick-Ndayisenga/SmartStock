@@ -19,7 +19,6 @@ import PremiumHeader from '@/components/layout/PremiumHeader';
 import { Button, FAB } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { Loading } from '@/components/ui/Loading';
 import { StockStatusBadge } from '@/components/ui/StockStatusBadge';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { useAuth } from '@/context/AuthContext';
@@ -28,6 +27,7 @@ import { useRouter } from 'expo-router';
 // Models & Types
 import { Product } from '@/database/models/Product';
 import { StockMovement } from '@/database/models/StockMovement';
+import { of } from '@nozbe/watermelondb/utils/rx';
 
 interface ProductWithStock extends Product {
   currentStock: number;
@@ -581,8 +581,8 @@ const enhance = withObservables(
   ({ currentShop }: { currentShop: any }) => {
     if (!currentShop) {
       return {
-        products: [],
-        stockMovements: [],
+        products: of([]), // or [],
+        stockMovements: of([]), // or [],
       };
     }
 

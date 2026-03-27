@@ -2,30 +2,27 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
+  Text,
   TouchableOpacity,
   Animated,
+  ScrollView,
+  Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import database from '@/database';
-import { useTranslation } from 'react-i18next';
 import { Q } from '@nozbe/watermelondb';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { MotiView } from 'moti';
+import { MotiView, MotiText } from 'moti';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 // Components
 import { Input } from '@/components/ui/Input';
-import { Button } from '@/components/ui/Button';
-import { Card, CardContent, CardHeader } from '@/components/ui/Card';
-import { ThemedText, HeadingText, MutedText, CaptionText } from '@/components/ui/ThemedText';
+import { Card, CardContent, CardHeader, CardDescription } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
-import { Badge } from '@/components/ui/Badge';
 import CustomDialog from '@/components/ui/CustomDialog';
-import SeedModal from '@/components/SeedModal';
 
 // Models
 import { Shop } from '@/database/models/Shop';
@@ -37,177 +34,165 @@ import { generateEnhancedUUID } from '@/utils/getModelId';
 // Context
 import { useAuth } from '@/context/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useTheme } from '../../providers/ThemeProvider';
+import Transaction from '@/database/models/Transaction';
+import { AccountTransaction } from '@/database/models/AccountTransaction';
+import { Payment } from '@/database/models/Payment';
+import { Product } from '@/database/models/Product';
 
-const generateBranchCode = (shopName: string = ''): string => {
-  const prefix = shopName
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z]/g, '')
-    .slice(0, 3);
-  
+// ─────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────
+
+const generateBranchCode = (shopName = ''): string => {
+  const prefix = shopName.trim().toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3);
   const validPrefix = prefix.length >= 2 ? prefix : 'SHO';
   const timestamp = Date.now().toString().slice(-4);
   const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-  
   return `${validPrefix}-${timestamp}${random}`;
 };
 
-const generateShopNameSuggestion = (userName: string = ''): string => {
+const generateShopNameSuggestion = (userName = ''): string => {
+  const first = userName.split(' ')[0];
   const names = [
-    `${userName.split(' ')[0]}'s Store`,
-    `${userName.split(' ')[0]} Enterprise`,
-    `${userName.split(' ')[0]} Shop`,
-    'My Business',
-    'Local Store',
-    'Community Shop',
+    `${first}'s Store`, `${first} Enterprise`, `${first} Shop`,
+    'My Business', 'Local Store', 'Community Shop',
   ];
   return names[Math.floor(Math.random() * names.length)];
 };
 
-// Animated Option Selector Component
-const OptionSelector = ({ options, value, onChange, label }: any) => {
-  const [selectedIndex, setSelectedIndex] = useState(
-    options.findIndex((opt: any) => opt.value === value)
-  );
+// ─────────────────────────────────────────────
+// Sub-components
+// ─────────────────────────────────────────────
 
-  const handleSelect = (index: number) => {
-    setSelectedIndex(index);
-    onChange(options[index].value);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
+const SectionLabel = ({ children }: { children: string }) => (
+  <Text className="text-text-muted dark:text-dark-text-muted text-xs font-semibold uppercase tracking-widest mb-3">
+    {children}
+  </Text>
+);
 
-  return (
-    <View>
-      {label && (
-        <ThemedText variant="label" size="sm" weight="medium" className="mb-2">
-          {label}
-        </ThemedText>
-      )}
-      <View className="flex-row gap-2">
-        {options.map((option: any, index: number) => (
-          <TouchableOpacity
-            key={option.value}
-            onPress={() => handleSelect(index)}
-            activeOpacity={0.7}
-            className="flex-1"
-          >
-            <Animated.View
-              style={{
-                transform: [{
-                  scale: selectedIndex === index ? 1.02 : 1
-                }],
-              }}
-            >
-              <LinearGradient
-                colors={
-                  selectedIndex === index
-                    ? ['#0ea5e9', '#0284c7']
-                    : ['#f1f5f9', '#e2e8f0']
-                }
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={{ borderRadius: 12 }}
-                className="py-3 px-4 items-center justify-center"
-              >
-                <ThemedText
-                  variant={selectedIndex === index ? "soft" : "muted"}
-                  weight={selectedIndex === index ? "semibold" : "regular"}
-                  className={selectedIndex === index ? "text-white" : ""}
-                >
-                  {option.label}
-                </ThemedText>
-              </LinearGradient>
-            </Animated.View>
-          </TouchableOpacity>
-        ))}
+const OptionPill = ({
+  label,
+  selected,
+  onPress,
+  isDark,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+  isDark: boolean;
+}) => (
+  <TouchableOpacity onPress={onPress} activeOpacity={0.75} className="flex-1">
+    {selected ? (
+      <LinearGradient
+        colors={isDark ? ['#38bdf8', '#0ea5e9'] : ['#0ea5e9', '#0284c7']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={{ borderRadius: 10, paddingVertical: 10, alignItems: 'center' }}
+      >
+        <Text className="text-white font-semibold text-sm">{label}</Text>
+      </LinearGradient>
+    ) : (
+      <View
+        className="py-2.5 items-center rounded-[10px] bg-surface-muted dark:bg-dark-surface-muted border border-border dark:border-dark-border"
+      >
+        <Text className="text-text-soft dark:text-dark-text-soft text-sm">{label}</Text>
       </View>
-    </View>
-  );
-};
+    )}
+  </TouchableOpacity>
+);
 
-// Feature Card Component
-const FeatureCard = ({ icon, title, description, delay }: any) => (
+const OptionSelector = ({
+  options,
+  value,
+  onChange,
+  label,
+  isDark,
+}: {
+  options: { value: string | number; label: string }[];
+  value: string | number;
+  onChange: (v: any) => void;
+  label?: string;
+  isDark: boolean;
+}) => (
+  <View>
+    {label && <SectionLabel>{label}</SectionLabel>}
+    <View className="flex-row gap-2">
+      {options.map((opt) => (
+        <OptionPill
+          key={String(opt.value)}
+          label={opt.label}
+          selected={opt.value === value}
+          isDark={isDark}
+          onPress={() => {
+            onChange(opt.value);
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }}
+        />
+      ))}
+    </View>
+  </View>
+);
+
+const FeatureRow = ({
+  icon,
+  title,
+  description,
+  delay,
+  isDark,
+}: {
+  icon: string;
+  title: string;
+  description: string;
+  delay: number;
+  isDark: boolean;
+}) => (
   <MotiView
-    from={{ opacity: 0, translateX: -20 }}
+    from={{ opacity: 0, translateX: -16 }}
     animate={{ opacity: 1, translateX: 0 }}
-    transition={{ delay, type: 'spring' }}
+    transition={{ delay, type: 'spring', damping: 18 }}
     className="flex-row items-center mb-4"
   >
     <LinearGradient
-      colors={['#0ea5e9', '#0284c7']}
+      colors={isDark ? ['#38bdf8', '#0ea5e9'] : ['#0ea5e9', '#0284c7']}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
-      style={{ borderRadius: 12 }}
-      className="w-10 h-10 items-center justify-center mr-3"
+      style={{ borderRadius: 10, width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}
     >
-      <Ionicons name={icon} size={20} color="#fff" />
+      <Ionicons name={icon as any} size={18} color="#fff" />
     </LinearGradient>
     <View className="flex-1">
-      <ThemedText variant="default" size="base" weight="semibold">
-        {title}
-      </ThemedText>
-      <CaptionText>{description}</CaptionText>
+      <Text className="text-text dark:text-dark-text font-semibold text-sm">{title}</Text>
+      <Text className="text-text-muted dark:text-dark-text-muted text-xs mt-0.5">{description}</Text>
     </View>
   </MotiView>
 );
 
-// Stats Card for Edit Mode - Using elegant blue gradient
-const EditStatsCard = ({ shop, onDelete }: any) => (
-  <MotiView
-    from={{ opacity: 0, scale: 0.95 }}
-    animate={{ opacity: 1, scale: 1 }}
-    transition={{ type: 'spring', delay: 200 }}
-    className="mb-6"
-  >
-    <LinearGradient
-      colors={['#1e293b', '#0f172a']}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={{ borderRadius: 16 }}
-      className="py-5 px-2"
-    >
-      <View className="flex-row justify-between items-start">
-        <View className="flex-1">
-          <Badge variant="info" className="bg-brand/20 self-start mb-2 border border-brand/30">
-            <ThemedText variant="brand" size="xs" weight="medium">
-              EDIT MODE
-            </ThemedText>
-          </Badge>
-          <HeadingText size="lg" weight="bold" className="text-white">
-            {shop?.name}
-          </HeadingText>
-          <MutedText className="text-white/70 mt-1">
-            Branch: {shop?.branchCode}
-          </MutedText>
-          <MutedText className="text-white/50 text-xs mt-2">
-            Created: {new Date(shop?.createdAt).toLocaleDateString()}
-          </MutedText>
-        </View>
-        <TouchableOpacity
-          onPress={onDelete}
-          className="bg-red-500/20 p-2 rounded-lg border border-red-500/30"
-        >
-          <Ionicons name="trash-outline" size={20} color="#ef4444" />
-        </TouchableOpacity>
-      </View>
-    </LinearGradient>
-  </MotiView>
+// Divider with label
+const Divider = ({ label }: { label: string }) => (
+  <View className="flex-row items-center gap-3 my-2">
+    <View className="flex-1 h-px bg-border dark:bg-dark-border" />
+    <Text className="text-text-muted dark:text-dark-text-muted text-xs uppercase tracking-widest">{label}</Text>
+    <View className="flex-1 h-px bg-border dark:bg-dark-border" />
+  </View>
 );
 
-// Main Component
+// ─────────────────────────────────────────────
+// Main Screen
+// ─────────────────────────────────────────────
+
 export default function CreateShopScreen() {
   const router = useRouter();
   const { shopId } = useLocalSearchParams<{ shopId?: string }>();
-  const { t } = useTranslation();
-  const { user, switchShop, removeShop } = useAuth();
+  const { user, switchShop, removeShop, clearInvalidSession, logout } = useAuth();
+  const { isDark } = useTheme();
 
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [isEditMode, setIsEditMode] = useState(false);
-  const [shopToDelete, setShopToDelete] = useState<Shop | null>(null);
-  const [showSeedModal, setShowSeedModal] = useState(false);
-  
-  // Dialog states
+  const [shopToEdit, setShopToEdit] = useState<Shop | null>(null);
+
+
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [showErrorDialog, setShowErrorDialog] = useState(false);
@@ -225,61 +210,29 @@ export default function CreateShopScreen() {
   });
 
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
+
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(0)).current;
+  const footerAnim = useRef(new Animated.Value(80)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-      Animated.spring(slideAnim, {
-        toValue: 1,
-        friction: 8,
-        useNativeDriver: true,
-      }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+      Animated.spring(footerAnim, { toValue: 0, damping: 16, mass: 1, stiffness: 120, useNativeDriver: true }),
     ]).start();
   }, []);
-
-  const generateCodeFromName = () => {
-    if (formData.name.trim()) {
-      const newCode = generateBranchCode(formData.name);
-      setFormData(prev => ({ ...prev, branchCode: newCode }));
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } else {
-      setErrorMessage('Please enter a shop name first to generate branch code');
-      setShowErrorDialog(true);
-    }
-  };
-
-  const suggestShopName = () => {
-    if (user?.displayName) {
-      const suggestion = generateShopNameSuggestion(user.displayName);
-      setFormData(prev => ({ ...prev, name: suggestion }));
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
-  };
 
   useEffect(() => {
     if (shopId) {
       loadShopForEdit(shopId);
     } else {
       setIsEditMode(false);
-      setShopToDelete(null);
-      
-      const initialName = user?.displayName 
-        ? generateShopNameSuggestion(user.displayName)
-        : '';
-      
-      const initialCode = generateBranchCode(initialName);
-      
+      setShopToEdit(null);
+      const initialName = user?.displayName ? generateShopNameSuggestion(user.displayName) : '';
       setFormData({
         name: initialName,
         location: '',
         phone: user?.phone || '',
-        branchCode: initialCode,
+        branchCode: generateBranchCode(initialName),
         currency: 'BIF',
         language: 'fr',
         weekStartDay: 1,
@@ -288,20 +241,15 @@ export default function CreateShopScreen() {
     }
   }, [shopId, user]);
 
-  const loadShopForEdit = async (shopId: string) => {
+  const loadShopForEdit = async (id: string) => {
     try {
       setInitialLoading(true);
-      const shop = await database.get<Shop>('shops').find(shopId);
-      
-      const settings = await database
-        .get<Setting>('settings')
-        .query(Q.where('shop_id', shopId))
-        .fetch();
+      const shop = await database.get<Shop>('shops').find(id);
+      const settings = await database.get<Setting>('settings').query(Q.where('shop_id', id)).fetch();
+      const setting = settings[0];
 
       setIsEditMode(true);
-      setShopToDelete(shop);
-
-      const setting = settings[0];
+      setShopToEdit(shop);
       setFormData({
         name: shop.name,
         location: shop.location || '',
@@ -311,8 +259,7 @@ export default function CreateShopScreen() {
         language: setting?.language || 'fr',
         weekStartDay: setting?.weekStartDay ?? 1,
       });
-    } catch (error) {
-      console.error('Failed to load shop:', error);
+    } catch {
       setErrorMessage('Failed to load shop');
       setShowErrorDialog(true);
       router.back();
@@ -321,203 +268,176 @@ export default function CreateShopScreen() {
     }
   };
 
-  const validateForm = () => {
-    const newErrors: { [key: string]: string } = {};
-    if (!formData.name.trim()) newErrors.name = 'Shop name is required';
-    if (!formData.location.trim()) newErrors.location = 'Location is required';
-    if (!formData.branchCode.trim()) newErrors.branchCode = 'Branch code is required';
-    if (formData.phone && !/^[+]*[(]{0,1}[0-9]{1,4}[)]{0,1}[-\s\./0-9]*$/.test(formData.phone)) {
-      newErrors.phone = 'Invalid phone number';
-    }
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+  const updateField = (field: string, value: string | number) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }));
   };
 
-  const createDefaultCashAccount = async (shopId: string) => {
-    const cashAccountId = generateEnhancedUUID();
-    
-    await database.get<CashAccount>('cash_accounts').create(record => {
-      record._raw.id = cashAccountId;
-      record.shopId = shopId;
-      record.name = 'MAIN CASH ACCOUNT';
-      record.type = 'cash';
-      record.currentBalance = 0;
-      record.openingBalance = 0;
-      record.currency = formData.currency;
-      record.isActive = true;
-      record.isDefault = true;
-      record.notes = 'Default cash account';
-    });
+  const validate = () => {
+    const e: { [k: string]: string } = {};
+    if (!formData.name.trim()) e.name = 'Shop name is required';
+    if (!formData.location.trim()) e.location = 'Location is required';
+    if (!formData.branchCode.trim()) e.branchCode = 'Branch code is required';
+    if (formData.phone && !/^[+\d\s\-().]+$/.test(formData.phone)) e.phone = 'Invalid phone number';
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
-  const handleSaveShop = async () => {
-    if (!validateForm()) return;
-    if (!user) {
-      setErrorMessage('User not found');
+  const regenerateCode = () => {
+    if (!formData.name.trim()) {
+      setErrorMessage('Enter a shop name first to generate a branch code');
       setShowErrorDialog(true);
       return;
     }
+    updateField('branchCode', generateBranchCode(formData.name));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const suggestName = () => {
+    if (user?.displayName) {
+      const name = generateShopNameSuggestion(user.displayName);
+      updateField('name', name);
+      updateField('branchCode', generateBranchCode(name));
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!validate()) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+    if (!user) { setErrorMessage('User not found'); setShowErrorDialog(true); return; }
 
     setLoading(true);
-
     try {
       await database.write(async () => {
-        if (isEditMode && shopToDelete) {
-          // UPDATE existing shop
-          await shopToDelete.update(record => {
-            record.name = formData.name.trim();
-            record.location = formData.location.trim();
-            record.phone = formData.phone.trim() || undefined;
-            record.branchCode = formData.branchCode.trim() || undefined;
-            record.updatedAt = new Date();
+        if (isEditMode && shopToEdit) {
+          await shopToEdit.update(r => {
+            r.name = formData.name.trim();
+            r.location = formData.location.trim();
+            r.phone = formData.phone.trim() || undefined;
+            r.branchCode = formData.branchCode.trim() || undefined;
           });
-
-          const settings = await database
-            .get<Setting>('settings')
-            .query(Q.where('shop_id', shopToDelete.id))
-            .fetch();
-          
+          const settings = await database.get<Setting>('settings').query(Q.where('shop_id', shopToEdit.id)).fetch();
           if (settings[0]) {
-            await settings[0].update(record => {
-              record.currency = formData.currency;
-              record.language = formData.language;
-              record.weekStartDay = formData.weekStartDay;
-              record.updatedAt = new Date();
+            await settings[0].update(r => {
+              r.currency = formData.currency;
+              r.language = formData.language;
+              r.weekStartDay = formData.weekStartDay;
             });
           }
-
-          setShowSuccessDialog(true);
-          setDialogAction({
-            onConfirm: () => {
-              setShowSuccessDialog(false);
-              router.back();
-            }
-          });
+          setDialogAction({ onConfirm: () => { setShowSuccessDialog(false); router.back(); } });
         } else {
-          // CREATE new shop
           const shopId = generateEnhancedUUID();
           const branchCode = formData.branchCode.trim() || generateBranchCode(formData.name);
-
-          const shop = await database.get<Shop>('shops').create(record => {
-            record._raw.id = shopId;
-            record.name = formData.name.trim();
-            record.ownerId = user.id;
-            record.location = formData.location.trim();
-            record.phone = formData.phone.trim() || undefined;
-            record.branchCode = branchCode;
-            record.createdAt = new Date();
-            record.updatedAt = new Date();
+          const shop = await database.get<Shop>('shops').create(r => {
+            r._raw.id = shopId;
+            r.name = formData.name.trim();
+            r.ownerId = user.id;
+            r.location = formData.location.trim();
+            r.phone = formData.phone.trim() || undefined;
+            r.branchCode = branchCode;
           });
-
-          await database.get<Setting>('settings').create(record => {
-            record.shopId = shop.id;
-            record.language = formData.language;
-            record.currency = formData.currency;
-            record.weekStartDay = formData.weekStartDay;
-            record.backupEnabled = true;
-            record.smsAlertsEnabled = true;
-            record.autoBackupWifiOnly = true;
-            record.createdAt = new Date();
-            record.updatedAt = new Date();
+          await database.get<Setting>('settings').create(r => {
+            r.shopId = shop.id;
+            r.language = formData.language;
+            r.currency = formData.currency;
+            r.weekStartDay = formData.weekStartDay;
+            r.backupEnabled = true;
+            r.smsAlertsEnabled = true;
+            r.autoBackupWifiOnly = true;
           });
-
-          await database.get<Membership>('memberships').create(record => {
-            record.userId = user.id;
-            record.shopId = shop.id;
-            record.role = 'owner';
-            record.status = 'active';
-            record.joinedAt = Date.now();
-            record.createdAt = new Date();
-            record.updatedAt = new Date();
+          await database.get<Membership>('memberships').create(r => {
+            r.userId = user.id;
+            r.shopId = shop.id;
+            r.role = 'owner';
+            r.status = 'active';
+            r.joinedAt = Date.now();
           });
-
-          await createDefaultCashAccount(shop.id);
+          const cashId = generateEnhancedUUID();
+          await database.get<CashAccount>('cash_accounts').create(r => {
+            r._raw.id = cashId;
+            r.shopId = shop.id;
+            r.name = 'MAIN CASH ACCOUNT';
+            r.type = 'cash';
+            r.currentBalance = 0;
+            r.openingBalance = 0;
+            r.currency = formData.currency;
+            r.isActive = true;
+            r.isDefault = true;
+          });
           await switchShop(shop.id);
-          
-          setShowSuccessDialog(true);
-          setDialogAction({
-            onConfirm: () => {
-              setShowSuccessDialog(false);
-              setShowSeedModal(true);
-            }
-          });
+          setDialogAction({ onConfirm: () => { setShowSuccessDialog(false)} });
         }
       });
-    } catch (error) {
-      console.error('Error saving shop:', error);
-      setErrorMessage(
-        isEditMode ? 'Failed to update shop' : 'Failed to create shop'
-      );
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setShowSuccessDialog(true);
+    } catch {
+      setErrorMessage(isEditMode ? 'Failed to update shop' : 'Failed to create shop');
       setShowErrorDialog(true);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDeleteShop = () => {
-    if (!shopToDelete || shopToDelete.ownerId !== user?.id) {
-      setErrorMessage('You don\'t have permission to delete this shop');
+  const handleDelete = () => {
+    if (!shopToEdit || shopToEdit.ownerId !== user?.id) {
+      setErrorMessage("You don't have permission to delete this shop");
       setShowErrorDialog(true);
       return;
     }
     setShowDeleteDialog(true);
   };
 
-  const confirmDeleteShop = async () => {
-    if (!shopToDelete || shopToDelete.ownerId !== user?.id) return;
-    
+  const confirmDelete = async () => {
+    if (!shopToEdit || shopToEdit.ownerId !== user?.id) return;
+
     setLoading(true);
+
     try {
       await database.write(async () => {
-        const settings = await database.get<Setting>('settings')
-          .query(Q.where('shop_id', shopToDelete.id))
-          .fetch();
-        
-        const memberships = await database.get<Membership>('memberships')
-          .query(Q.where('shop_id', shopToDelete.id))
-          .fetch();
+        const settings = await database.get<Setting>('settings').query(Q.where('shop_id', shopToEdit.id)).fetch();
+        const memberships = await database.get<Membership>('memberships').query(Q.where('shop_id', shopToEdit.id)).fetch();
+        const products = await database.get('products').query(Q.where('shop_id', shopToEdit.id)).fetch();
+        const stockMovements = await database.get('stock_movements').query(Q.where('shop_id', shopToEdit.id)).fetch();
+        const contacts = await database.get('contacts').query(Q.where('shop_id', shopToEdit.id)).fetch();
+        const cashAccounts = await database.get<CashAccount>('cash_accounts').query(Q.where('shop_id', shopToEdit.id)).fetch();
+        const transactions = await database.get<Transaction>('transactions').query(Q.where('shop_id', shopToEdit.id)).fetch();
+        const accountTransactions = await database.get<AccountTransaction>('account_transactions').query(Q.where('shop_id', shopToEdit.id)).fetch();
+        const payments = await database.get<Payment>('payments').query(Q.where('shop_id', shopToEdit.id)).fetch();
 
-        const products = await database.get('products')
-          .query(Q.where('shop_id', shopToDelete.id))
-          .fetch();
-
-        const stockMovements = await database.get('stock_movements')
-          .query(Q.where('shop_id', shopToDelete.id))
-          .fetch();
-
-        const contacts = await database.get('contacts')
-          .query(Q.where('shop_id', shopToDelete.id))
-          .fetch();
-
-        const cashAccounts = await database.get<CashAccount>('cash_accounts')
-          .query(Q.where('shop_id', shopToDelete.id))
-          .fetch();
-
-        await Promise.all([
-          ...settings.map(s => s.destroyPermanently()),
-          ...memberships.map(m => m.destroyPermanently()),
-          ...products.map(p => p.destroyPermanently()),
-          ...stockMovements.map(m => m.destroyPermanently()),
-          ...contacts.map(c => c.destroyPermanently()),
-          ...cashAccounts.map(c => c.destroyPermanently()),
-          shopToDelete.destroyPermanently(),
-        ]);
+        await database.batch(
+          ...settings.map(s => s.prepareDestroyPermanently()),
+          ...memberships.map(m => m.prepareDestroyPermanently()),
+          ...products.map(p => p.prepareDestroyPermanently()),
+          ...stockMovements.map(m => m.prepareDestroyPermanently()),
+          ...contacts.map(c => c.prepareDestroyPermanently()),
+          ...cashAccounts.map(c => c.prepareDestroyPermanently()),
+          ...transactions.map(t => t.prepareDestroyPermanently()),
+          ...accountTransactions.map(t => t.prepareDestroyPermanently()),
+          ...payments.map(p => p.prepareDestroyPermanently()),
+          shopToEdit.prepareDestroyPermanently(),
+        );
       });
 
       await removeShop();
       await AsyncStorage.removeItem('@magasin_current_shop');
       await AsyncStorage.removeItem('@magasin_has_seeds');
-      
-      setShowSuccessDialog(true);
+
       setDialogAction({
         onConfirm: () => {
           setShowSuccessDialog(false);
           router.push('/(tabs)');
         }
       });
-      
-    } catch (error) {
-      console.error('Delete error:', error);
+
+      setShowSuccessDialog(true);
+
+      await clearInvalidSession();
+      await logout();
+
+    } catch {
       setErrorMessage('Failed to delete shop');
       setShowErrorDialog(true);
     } finally {
@@ -526,199 +446,186 @@ export default function CreateShopScreen() {
     }
   };
 
-  const updateFormData = (field: string, value: string | number) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }));
-  };
-
   if (initialLoading) {
     return (
-      <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
-        <Loading text={isEditMode ? "Loading shop..." : "Setting up..."} />
+      <View className="flex-1 bg-surface dark:bg-dark-surface items-center justify-center">
+        <Loading text={isEditMode ? 'Loading shop...' : 'Setting up...'} />
       </View>
     );
   }
 
+  // ─── Derived ──────────────────────────────
+  const isOwner = shopToEdit?.ownerId === user?.id;
+  const canSave = formData.name.trim().length > 0 && formData.location.trim().length > 0;
+
   return (
-    <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
-      {/* Animated Header - Unified blue theme with subtle difference */}
+    <SafeAreaView className={`flex-1 ${isDark ? 'bg-dark-surface' : 'bg-surface-soft'}`}>
+
+      {/* Background gradient */}
       <LinearGradient
-        colors={isEditMode ? ['#0f172a', '#1e293b'] : ['#0ea5e9', '#0284c7']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        className="pt-12 pb-6 px-2"
-      >
-        <Animated.View style={{ opacity: fadeAnim }}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            className="w-10 h-10 rounded-full bg-white/20 items-center justify-center mb-4"
-          >
-            <Ionicons name="arrow-back" size={24} color="#fff" />
-          </TouchableOpacity>
-          
-          <HeadingText size="3xl" weight="bold" className="text-white mb-1">
-            {isEditMode ? 'Edit Shop' : 'Create New Shop'}
-          </HeadingText>
-          <MutedText className="text-white/80">
-            {isEditMode 
-              ? 'Update your shop information and preferences' 
-              : 'Set up your business location and preferences'}
-          </MutedText>
-        </Animated.View>
-      </LinearGradient>
+        colors={isDark ? ['#0f172a', '#1e1b4b', '#0f172a'] : ['#f8fafc', '#e0f2fe', '#f8fafc']}
+        className="absolute inset-0"
+      />
 
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
-        className="flex-1"
-      >
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
         <ScrollView
-          className="flex-1"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 180 }}
+          contentContainerStyle={{ paddingBottom: 160 }}
+          keyboardShouldPersistTaps="handled"
         >
-          <View className="py-4 px-2">
-            {/* Edit Mode Stats Card */}
-            {isEditMode && shopToDelete && (
-              <EditStatsCard 
-                shop={shopToDelete} 
-                onDelete={handleDeleteShop}
-              />
-            )}
+          <Animated.View style={{ opacity: fadeAnim }}>
 
-            {/* Welcome Card - Only for Create Mode */}
-            {!isEditMode && (
-              <MotiView
-                from={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ type: 'spring', delay: 200 }}
-                className="mb-6"
+           <View className="px-4 pt-4 pb-8">
+  
+            {/* Top row */}
+            <View className="flex-row items-center justify-between gap-4">
+              
+              {/* Left */}
+              <TouchableOpacity
+                onPress={() => router.back()}
+                className="w-10 h-10 rounded-full bg-surface-muted items-center justify-center"
               >
-                <LinearGradient
-                  colors={['rgba(14,165,233,0.1)', 'rgba(14,165,233,0.05)']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={{ borderRadius: 16 }}
-                  className="py-5 px-2"
+                <Ionicons name="arrow-back" size={20} />
+              </TouchableOpacity>
+
+              {/* Center */}
+              <View className="flex-row items-center gap-4 flex-1 mx-3">
+                <View className="flex-shrink">
+                  <MotiText className="text-2xl font-bold text-brand dark:text-dark-brand">
+                    {isEditMode ? 'Edit Shop' : 'Create New Shop'}
+                  </MotiText>
+                  <MotiText className="text-sm text-text-muted dark:text-dark-text-muted">
+                    {isEditMode ? 'Update your shop details' : 'Create a new shop'}
+                  </MotiText>
+                </View>
+              </View>
+
+              {/* Right */}
+              {isEditMode && isOwner && (
+                <TouchableOpacity
+                  onPress={handleDelete}
+                  className="w-10 h-10 rounded-full items-center justify-center"
                 >
-                  <View className="flex-row items-start">
-                    <LinearGradient
-                      colors={['#0ea5e9', '#0284c7']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={{ borderRadius: 12 }}
-                      className="w-12 h-12 items-center justify-center mr-4"
-                    >
-                      <Ionicons name="rocket-outline" size={24} color="#fff" />
-                    </LinearGradient>
-                    <View className="flex-1">
-                      <HeadingText size="base" weight="semibold" className="mb-1">
-                        Welcome to SmartStock!
-                      </HeadingText>
-                      <MutedText size="sm">
-                        Let's set up your shop. We'll help you get started quickly.
-                      </MutedText>
-                      
-                      <View className="flex-row mt-4 gap-2">
-                        <TouchableOpacity
-                          onPress={suggestShopName}
-                          className="flex-row items-center bg-surface dark:bg-dark-surface px-3 py-2 rounded-lg"
-                        >
-                          <Ionicons name="bulb-outline" size={16} color="#0ea5e9" />
-                          <ThemedText variant="brand" size="xs" className="ml-1">
-                            Suggest Name
-                          </ThemedText>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  </View>
-                </LinearGradient>
+                  <Ionicons name="trash-outline" size={18} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Meta strip (separate row!) */}
+            {isEditMode && shopToEdit && (
+              <MotiView className="mt-4 flex-row items-center gap-3 px-3 py-2 rounded-xl">
+                <View className="w-2 h-2 rounded-full" />
+                <Text className="flex-1 text-xs">
+                  {shopToEdit.branchCode} • {shopToEdit.name}
+                </Text>
+                <Text className="text-xs">
+                  {new Date(shopToEdit.createdAt).toLocaleDateString()}
+                </Text>
               </MotiView>
             )}
+          </View>
+            
 
-            {/* Main Form Card */}
+            {/* ── Shop Information Card ─────────────── */}
             <MotiView
-              from={{ opacity: 0, translateY: 30 }}
+              from={{ opacity: 0, translateY: 20 }}
               animate={{ opacity: 1, translateY: 0 }}
-              transition={{ type: 'spring', delay: isEditMode ? 300 : 300 }}
+              transition={{ delay: isEditMode ? 260 : 320, type: 'spring', damping: 18 }}
+              className="mx-4 mb-4"
             >
-              <Card variant="elevated" className="mb-6">
-                <CardHeader 
-                  title={isEditMode ? "Shop Information" : "Basic Information"}
-                  subtitle={isEditMode 
-                    ? "Update your shop details" 
-                    : "Tell us about your business"}
-                />
-                <CardContent className="gap-4">
+              <Card variant="elevated">
+                <CardContent className="p-md gap-4">
+                  <View className="flex-row justify-between items-center gap-2 mb-4">
+                    <SectionLabel>Shop Details</SectionLabel>
+                    <TouchableOpacity
+                        onPress={suggestName}
+                        activeOpacity={0.75}
+                        className="flex-row items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface dark:bg-dark-surface-soft border border-border dark:border-dark-border"
+                      >
+                        <Ionicons name="bulb-outline" size={14} color={isDark ? '#38bdf8' : '#0ea5e9'} />
+                        <Text className="text-brand dark:text-dark-brand text-xs font-medium">Suggest Name</Text>
+                      </TouchableOpacity>
+                  </View>
+                  
                   <Input
                     label="Shop Name"
-                    placeholder="Enter your shop name"
+                    placeholder="e.g. Agateka Shop"
                     value={formData.name}
-                    onChangeText={(text) => updateFormData('name', text)}
+                    onChangeText={(t) => updateField('name', t)}
                     error={errors.name}
+                    leftIcon="storefront-outline"
                     autoFocus={!isEditMode}
-                    rightIcon={!isEditMode ? "bulb-outline" : undefined}
-                    onRightIconPress={!isEditMode ? suggestShopName : undefined}
+                    required
+                    showRequiredIndicator
                   />
 
                   <Input
-                    label="Location"
-                    placeholder="Enter shop address"
+                    label="Location / Address"
+                    placeholder="e.g. Bujumbura, Rohero"
                     value={formData.location}
-                    onChangeText={(text) => updateFormData('location', text)}
+                    onChangeText={(t) => updateField('location', t)}
                     error={errors.location}
-                    rightIcon="location-outline"
+                    leftIcon="location-outline"
+                    required
+                    showRequiredIndicator
                   />
 
                   <Input
                     label="Phone Number"
-                    placeholder="Enter contact number"
+                    placeholder="e.g. +257 79 000 000"
                     value={formData.phone}
-                    onChangeText={(text) => updateFormData('phone', text)}
+                    onChangeText={(t) => updateField('phone', t)}
                     error={errors.phone}
+                    leftIcon="call-outline"
                     keyboardType="phone-pad"
                   />
 
-                  <View>
-                    <Input
-                      label="Branch Code"
-                      placeholder="Unique branch identifier"
-                      value={formData.branchCode}
-                      onChangeText={(text) => updateFormData('branchCode', text)}
-                      error={errors.branchCode}
-                      rightIcon="refresh-outline"
-                      onRightIconPress={generateCodeFromName}
-                    />
-                    {!isEditMode && formData.name && (
-                      <CaptionText className="mt-1">
+                  <Input
+                    label="Branch Code"
+                    placeholder="e.g. SHO-12345"
+                    value={formData.branchCode}
+                    onChangeText={(t) => updateField('branchCode', t)}
+                    error={errors.branchCode}
+                    leftIcon="barcode-outline"
+                    rightIcon="refresh-outline"
+                    onRightIconPress={regenerateCode}
+                    required
+                    showRequiredIndicator
+                  />
+
+                  {!isEditMode && formData.name.trim() && (
+                    <View className="flex-row items-center gap-2 -mt-2 px-1">
+                      <Ionicons name="information-circle-outline" size={13} color={isDark ? '#94a3b8' : '#64748b'} />
+                      <Text className="text-text-muted dark:text-dark-text-muted text-xs">
                         Suggested: {generateBranchCode(formData.name)}
-                      </CaptionText>
-                    )}
-                  </View>
+                      </Text>
+                    </View>
+                  )}
                 </CardContent>
               </Card>
             </MotiView>
 
-            {/* Settings Card */}
+            {/* ── Preferences Card ─────────────────── */}
             <MotiView
-              from={{ opacity: 0, translateY: 30 }}
+              from={{ opacity: 0, translateY: 20 }}
               animate={{ opacity: 1, translateY: 0 }}
-              transition={{ type: 'spring', delay: isEditMode ? 400 : 400 }}
+              transition={{ delay: isEditMode ? 340 : 420, type: 'spring', damping: 18 }}
+              className="mx-4 mb-6"
             >
-              <Card variant="elevated" className="mb-6">
-                <CardHeader 
-                  title="Preferences"
-                  subtitle="Customize your shop settings"
-                />
-                <CardContent className="gap-5">
+              <Card variant="elevated">
+                <CardContent className="p-md gap-5">
+                  <SectionLabel>Preferences</SectionLabel>
+
                   <OptionSelector
                     label="Currency"
                     options={[
-                      { value: 'BIF', label: 'BIF (₣)' },
-                      { value: 'USD', label: 'USD ($)' },
-                      { value: 'EUR', label: 'EUR (€)' }
+                      { value: 'BIF', label: 'BIF ₣' },
+                      { value: 'USD', label: 'USD $' },
+                      { value: 'EUR', label: 'EUR €' },
                     ]}
                     value={formData.currency}
-                    onChange={(value: string) => updateFormData('currency', value)}
+                    onChange={(v: string) => updateField('currency', v)}
+                    isDark={isDark}
                   />
 
                   <OptionSelector
@@ -726,201 +633,206 @@ export default function CreateShopScreen() {
                     options={[
                       { value: 'fr', label: 'Français' },
                       { value: 'en', label: 'English' },
-                      { value: 'rn', label: 'Kirundi' }
+                      { value: 'rn', label: 'Kirundi' },
                     ]}
                     value={formData.language}
-                    onChange={(value: string) => updateFormData('language', value)}
+                    onChange={(v: string) => updateField('language', v)}
+                    isDark={isDark}
                   />
 
                   <OptionSelector
-                    label="Week Start Day"
+                    label="Week Starts On"
                     options={[
                       { value: 0, label: 'Sunday' },
-                      { value: 1, label: 'Monday' }
+                      { value: 1, label: 'Monday' },
                     ]}
                     value={formData.weekStartDay}
-                    onChange={(value: number) => updateFormData('weekStartDay', value)}
+                    onChange={(v: number) => updateField('weekStartDay', v)}
+                    isDark={isDark}
                   />
                 </CardContent>
               </Card>
             </MotiView>
 
-            {/* Features Card - Only for Create Mode */}
+            {/* ── Create Mode Welcome ───────────────── */}
             {!isEditMode && (
               <MotiView
-                from={{ opacity: 0, translateY: 30 }}
+                from={{ opacity: 0, translateY: 16 }}
                 animate={{ opacity: 1, translateY: 0 }}
-                transition={{ type: 'spring', delay: 500 }}
+                transition={{ delay: 200, type: 'spring', damping: 18 }}
+                className="mx-4 mb-5"
               >
-                <Card variant="elevated">
-                  <CardHeader 
-                    title="What You'll Get"
-                    subtitle="Everything you need to manage your business"
-                  />
-                  <CardContent>
-                    <FeatureCard
-                      icon="cube-outline"
-                      title="Inventory Management"
-                      description="Track stock levels, set alerts, and manage products"
-                      delay={600}
-                    />
-                    <FeatureCard
-                      icon="cash-outline"
-                      title="Sales & Transactions"
-                      description="Record sales, track revenue, and manage payments"
-                      delay={650}
-                    />
-                    <FeatureCard
-                      icon="people-outline"
-                      title="Staff Management"
-                      description="Add team members and manage permissions"
-                      delay={700}
-                    />
-                    <FeatureCard
-                      icon="bar-chart-outline"
-                      title="Analytics & Reports"
-                      description="Get insights into your business performance"
-                      delay={750}
-                    />
-                  </CardContent>
-                </Card>
+                <View
+                  className="rounded-2xl overflow-hidden border border-border dark:border-dark-border"
+                  style={{
+                    shadowColor: isDark ? '#38bdf8' : '#0ea5e9',
+                    shadowOpacity: 0.08,
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowRadius: 12,
+                    elevation: 3,
+                  }}
+                >
+                  <LinearGradient
+                    colors={isDark
+                      ? ['rgba(56,189,248,0.08)', 'rgba(129,140,248,0.04)']
+                      : ['rgba(14,165,233,0.07)', 'rgba(99,102,241,0.04)']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    className="p-4"
+                  >
+                   
+                    <Divider label="included" />
+
+                    <View className="mt-3 gap-0 p-2">
+                      <FeatureRow icon="cube-outline" title="Inventory Management" description="Track stock levels and product alerts" delay={300} isDark={isDark} />
+                      <FeatureRow icon="cash-outline" title="Sales & Transactions" description="Record sales and manage payments" delay={350} isDark={isDark} />
+                      <FeatureRow icon="people-outline" title="Staff Management" description="Add team members and set permissions" delay={400} isDark={isDark} />
+                      <FeatureRow icon="bar-chart-outline" title="Analytics & Reports" description="Insights into your business performance" delay={450} isDark={isDark} />
+                    </View>
+                  </LinearGradient>
+                </View>
               </MotiView>
             )}
-          </View>
+
+          </Animated.View>
         </ScrollView>
 
-        {/* Fixed Action Buttons */}
+        {/* ── Fixed Footer ─────────────────────── */}
         <Animated.View
-          style={{
-            transform: [{
-              translateY: slideAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [100, 0],
-              }),
-            }],
-          }}
-          className="absolute bottom-0 left-0 right-0 p-6 bg-surface dark:bg-dark-surface border-t border-border"
+          style={{ transform: [{ translateY: footerAnim }] }}
+          className="absolute bottom-0 left-0 right-0 bg-surface dark:bg-dark-surface border-t border-border dark:border-dark-border px-4 pt-3 pb-6"
         >
-          {isEditMode ? (
-            <View className="gap-3">
-              <Button
-                variant="default"
-                size="lg"
-                onPress={handleSaveShop}
-                loading={loading}
-                icon="save-outline"
-              >
-                Update Shop
-              </Button>
-
-              {shopToDelete?.ownerId === user?.id && (
-                <Button
-                  variant="destructive"
-                  size="lg"
-                  onPress={handleDeleteShop}
-                  disabled={loading}
-                  icon="trash-outline"
-                >
-                  Delete Shop
-                </Button>
-              )}
-            </View>
-          ) : (
-            <Button
-              variant="default"
-              size="lg"
-              onPress={handleSaveShop}
-              loading={loading}
-              disabled={!formData.name.trim() || !formData.location.trim()}
-              icon="checkmark-circle-outline"
+          {/* Primary action */}
+          <TouchableOpacity
+            onPress={handleSave}
+            disabled={loading || !canSave}
+            activeOpacity={0.88}
+          >
+            <LinearGradient
+              colors={
+                !canSave
+                  ? [isDark ? '#334155' : '#e2e8f0', isDark ? '#334155' : '#e2e8f0']
+                  : isDark
+                  ? ['#38bdf8', '#818cf8']
+                  : ['#0ea5e9', '#6366f1']
+              }
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={{
+                borderRadius: 14,
+                paddingVertical: 15,
+                alignItems: 'center',
+                flexDirection: 'row',
+                justifyContent: 'center',
+                shadowColor: canSave ? (isDark ? '#38bdf8' : '#0ea5e9') : 'transparent',
+                shadowOffset: { width: 0, height: 6 },
+                shadowOpacity: 0.28,
+                shadowRadius: 12,
+                elevation: canSave ? 5 : 0,
+              }}
             >
-              Create Shop
-            </Button>
+              {loading ? (
+                <>
+                  <Ionicons name="hourglass-outline" size={18} color="white" style={{ marginRight: 8 }} />
+                  <Text className="text-white font-semibold text-base">
+                    {isEditMode ? 'Saving...' : 'Creating...'}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Ionicons
+                    name={isEditMode ? 'save-outline' : 'checkmark-circle-outline'}
+                    size={18}
+                    color={!canSave ? (isDark ? '#64748b' : '#94a3b8') : 'white'}
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text
+                    style={{ color: !canSave ? (isDark ? '#64748b' : '#94a3b8') : 'white' }}
+                    className="font-semibold text-base"
+                  >
+                    {isEditMode ? 'Save Changes' : 'Create Shop'}
+                  </Text>
+                </>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+
+          {/* Delete button — edit mode only */}
+          {isEditMode && isOwner && (
+            <TouchableOpacity
+              onPress={handleDelete}
+              disabled={loading}
+              activeOpacity={0.8}
+              className="mt-2 py-3 items-center flex-row justify-center gap-2"
+            >
+              <Ionicons name="trash-outline" size={16} color={isDark ? '#f87171' : '#ef4444'} />
+              <Text className="text-error dark:text-dark-error text-sm font-medium">
+                Delete Shop
+              </Text>
+            </TouchableOpacity>
           )}
-          
-          <CaptionText align="center" className="mt-3">
-            {isEditMode 
-              ? 'Changes will be saved immediately' 
-              : 'By creating a shop, you agree to our Terms of Service'}
-          </CaptionText>
+
+          <Text className="text-center text-text-muted dark:text-dark-text-muted text-xs mt-2">
+            {isEditMode
+              ? 'Changes are saved immediately'
+              : 'By creating a shop you agree to our Terms of Service'}
+          </Text>
         </Animated.View>
       </KeyboardAvoidingView>
 
-      {/* Modals */}
-      {showSeedModal && (
-        <SeedModal
-          visible={showSeedModal}
-          onClose={() => setShowSeedModal(false)}
-        />
-      )}
+      {/* ── Modals & Dialogs ─────────────────── */}
+      {/* {showSeedModal && (
+        <SeedModal visible={showSeedModal} onClose={() => setShowSeedModal(false)} />
+      )} */}
 
       <CustomDialog
         visible={showSuccessDialog}
-        title={isEditMode ? "Success!" : "Shop Created!"}
-        description={isEditMode 
-          ? "Your shop has been updated successfully" 
-          : "Your shop has been created! Let's add some products to get started."
+        title={isEditMode ? 'Shop Updated!' : 'Shop Created!'}
+        description={
+          isEditMode
+            ? 'Your shop has been updated successfully.'
+            : "Your shop is ready! Let's add some products to get started."
         }
         variant="success"
         icon="checkmark-circle"
-        actions={[
-          {
-            label: 'Continue',
-            variant: 'default',
-            onPress: () => {
-              setShowSuccessDialog(false);
-              dialogAction.onConfirm?.();
-              setDialogAction({});
-            },
-          },
-        ]}
-        onClose={() => {
-          setShowSuccessDialog(false);
-          dialogAction.onConfirm?.();
-          setDialogAction({});
-        }}
+        actions={[{
+          label: 'Continue',
+          variant: 'default',
+          onPress: () => { setShowSuccessDialog(false); router.push('/(tabs)/products'); },
+        }]}
+        onClose={() => { setShowSuccessDialog(false); dialogAction.onConfirm?.(); setDialogAction({}); }}
       />
 
       <CustomDialog
         visible={showErrorDialog}
-        title="Oops!"
+        title="Something went wrong"
         description={errorMessage}
         variant="error"
         icon="alert-circle"
-        actions={[
-          {
-            label: 'OK',
-            variant: 'default',
-            onPress: () => {
-              setShowErrorDialog(false);
-              setErrorMessage('');
-            },
-          },
-        ]}
-        onClose={() => {
-          setShowErrorDialog(false);
-          setErrorMessage('');
-        }}
+        actions={[{
+          label: 'OK',
+          variant: 'default',
+          onPress: () => { setShowErrorDialog(false); setErrorMessage(''); },
+        }]}
+        onClose={() => { setShowErrorDialog(false); setErrorMessage(''); }}
       />
 
       <CustomDialog
         visible={showDeleteDialog}
-        title="Delete Shop?"
-        description="Are you sure you want to delete this shop? This action cannot be undone and will remove all associated data including products, transactions, and staff members."
+        title="Delete this shop?"
+        description="This will permanently remove all products, transactions, staff, and data associated with this shop. This cannot be undone."
         variant="error"
         icon="trash-outline"
-        showCancel={true}
+        showCancel
         cancelLabel="Cancel"
         onCancel={() => setShowDeleteDialog(false)}
-        actions={[
-          {
-            label: 'Delete Permanently',
-            variant: 'destructive',
-            onPress: confirmDeleteShop,
-          },
-        ]}
+        actions={[{
+          label: 'Delete Permanently',
+          variant: 'destructive',
+          onPress: confirmDelete,
+        }]}
         onClose={() => setShowDeleteDialog(false)}
       />
-    </View>
+    </SafeAreaView>
   );
 }

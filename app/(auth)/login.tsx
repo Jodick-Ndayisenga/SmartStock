@@ -16,15 +16,14 @@ import {
 import { Link, useRouter } from 'expo-router';
 import { Input, PhoneInput } from '../../components/ui/Input';
 import { Card, CardHeader, CardContent, CardFooter, CardTitle, CardDescription } from '../../components/ui/Card';
-import { useTheme } from '../../providers/ThemeProvider';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { MotiView, MotiText } from 'moti';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/ui/ThemedText';
+import { useColorScheme } from 'nativewind';
 
 const { width } = Dimensions.get('window');
 
@@ -46,6 +45,7 @@ const EAC_COUNTRIES: CountryCode[] = [
 ];
 
 export default function LoginScreen() {
+  const { login, isAuthenticated, loading: authLoading , selectedTheme} = useAuth();
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [countryCode, setCountryCode] = useState('+257'); // Default Burundi
@@ -55,10 +55,21 @@ export default function LoginScreen() {
   const [isCountryPickerOpen, setIsCountryPickerOpen] = useState(false);
   const [isForgotModalVisible, setIsForgotModalVisible] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
+  const {colorScheme, setColorScheme} = useColorScheme();
 
-  const { login, isAuthenticated, loading: authLoading } = useAuth();
+    useEffect(() => {
+    if (selectedTheme) {
+      setColorScheme(selectedTheme);
+    }
+  }, [selectedTheme]);
+
+
+  const isDark = colorScheme === 'dark';
+
+  
   const router = useRouter();
-  const { isDark } = useTheme();
+
+  //console.log(isDark)
 
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;

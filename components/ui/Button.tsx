@@ -1,15 +1,19 @@
 // components/ui/Button.tsx
-import React, { useRef } from 'react';
+import React, { forwardRef } from 'react';
 import {
   TouchableOpacity,
   TouchableOpacityProps,
   ActivityIndicator,
   View,
+  StyleProp,
+  ViewStyle,
+  Text,
 } from 'react-native';
 import { cn } from '../../lib/utils';
 import { ThemedText, ThemedTextProps } from './ThemedText';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
+import { LinearGradient } from 'expo-linear-gradient';
 
 // Button Variants
 type ButtonVariant =
@@ -35,10 +39,11 @@ export interface ButtonProps extends TouchableOpacityProps {
   iconPosition?: 'left' | 'right';
   fullWidth?: boolean;
   className?: string;
-  iconColor?: string; // Optional manual override
+  iconColor?: string;
+  gradient?: boolean;
 }
 
-export const Button = React.forwardRef<typeof TouchableOpacity, ButtonProps>(
+export const Button = forwardRef<View, ButtonProps>(
   (
     {
       variant = 'default',
@@ -48,69 +53,57 @@ export const Button = React.forwardRef<typeof TouchableOpacity, ButtonProps>(
       children,
       icon,
       iconPosition = 'left',
-      fullWidth = false,
+      fullWidth = true,
       className,
       iconColor,
+      gradient = variant === 'default',
       ...props
     },
     ref
   ) => {
-    // Theme detection (light / dark)
     const { colorScheme } = useColorScheme();
     const isDark = colorScheme === 'dark';
 
-    // Hard-coded icon color logic
+    // Gradient colors matching your register page
+    const gradientColors: [string, string] = isDark 
+      ? ['#38bdf8', '#818cf8'] 
+      : ['#0ea5e9', '#6366f1'];
+
+    const destructiveGradientColors: [string, string] = ['#ef4444', '#dc2626'];
+    const successGradientColors: [string, string] = ['#22c55e', '#16a34a'];
+    const warningGradientColors: [string, string] = ['#f59e0b', '#d97706'];
+
     const getIconColor = () => {
-      if (iconColor) return iconColor; // manual override
-
-      if (
-        variant === 'default' ||
-        variant === 'destructive' ||
-        variant === 'success' ||
-        variant === 'warning'
-      ) {
-        return '#ffffff'; // always white on solid buttons
+      if (iconColor) return iconColor;
+      
+      if (variant === 'default' || variant === 'destructive' || variant === 'success' || variant === 'warning') {
+        return '#ffffff';
       }
-
-      // for outline / ghost / secondary
       return isDark ? '#f1f5f9' : '#0f172a';
     };
 
-    // Base classes
-    const baseClasses =
-      'flex-row items-center justify-center rounded-base border border-transparent';
-
-    // Variant classes
-    const variantClasses: Record<ButtonVariant, string> = {
-      default: 'bg-brand border-brand active:bg-brand/90',
-      secondary:
-        'border-[2px] bg-surface-muted dark:bg-dark-surface-muted border-border dark:border-dark-border active:bg-surface-soft dark:active:bg-dark-surface-soft',
-      outline:
-        'border-[2px] border-border dark:border-dark-border bg-transparent active:bg-surface-soft dark:active:bg-dark-surface-soft',
-      ghost:
-        'border-[2px] bg-transparent border-transparent active:bg-surface-soft dark:active:bg-dark-surface-soft',
-      destructive: 'border-[2px] bg-error border-error active:bg-error/90',
-      success: 'border-[2px] bg-success border-success active:bg-success/90',
-      warning: 'border-[2px] bg-warning border-warning active:bg-warning/90',
+    // Size classes for padding
+    const sizeConfigs: Record<ButtonSize, { paddingVertical: number; paddingHorizontal: number; borderRadius: number }> = {
+      sm: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8 },
+      default: { paddingVertical: 14, paddingHorizontal: 20, borderRadius: 12 },
+      lg: { paddingVertical: 16, paddingHorizontal: 24, borderRadius: 14 },
+      xl: { paddingVertical: 18, paddingHorizontal: 28, borderRadius: 16 },
     };
 
-    // Size classes
-    const sizeClasses: Record<ButtonSize, string> = {
-      sm: 'px-3 py-2',
-      default: 'px-4 py-3',
-      lg: 'px-6 py-4',
-      xl: 'px-8 py-5',
+    // Icon size mapping
+    const iconSizeMap: Record<ButtonSize, number> = {
+      sm: 16,
+      default: 18,
+      lg: 20,
+      xl: 22,
     };
 
-    // Text variant mapping
-    const textVariantMap: Record<ButtonVariant, ThemedTextProps['variant']> = {
-      default: 'default',
-      secondary: 'default',
-      outline: 'default',
-      ghost: 'default',
-      destructive: 'default',
-      success: 'default',
-      warning: 'default',
+    // Text size mapping
+    const textSizeMap: Record<ButtonSize, ThemedTextProps['size']> = {
+      sm: 'sm',
+      default: 'base',
+      lg: 'lg',
+      xl: 'xl',
     };
 
     // Text color classes
@@ -124,76 +117,170 @@ export const Button = React.forwardRef<typeof TouchableOpacity, ButtonProps>(
       warning: 'text-white',
     };
 
-    // Text size mapping
-    const textSizeMap: Record<ButtonSize, ThemedTextProps['size']> = {
-      sm: 'sm',
-      default: 'base',
-      lg: 'lg',
-      xl: 'xl',
-    };
-
-    // Icon size mapping
-    const iconSizeMap: Record<ButtonSize, number> = {
-      sm: 16,
-      default: 18,
-      lg: 20,
-      xl: 22,
+    // Text variant mapping
+    const textVariantMap: Record<ButtonVariant, ThemedTextProps['variant']> = {
+      default: 'default',
+      secondary: 'default',
+      outline: 'default',
+      ghost: 'default',
+      destructive: 'default',
+      success: 'default',
+      warning: 'default',
     };
 
     const isDisabled = disabled || loading;
-    const buttonRef = useRef<View>(null);
+
+    // Get gradient colors for current variant
+    const getGradientColors = (): [string, string] | null => {
+      if (!gradient) return null;
+      
+      switch (variant) {
+        case 'default':
+          return gradientColors;
+        case 'destructive':
+          return destructiveGradientColors;
+        case 'success':
+          return successGradientColors;
+        case 'warning':
+          return warningGradientColors;
+        default:
+          return null;
+      }
+    };
+
+    const currentGradient = getGradientColors();
+    const shouldUseGradient = gradient && currentGradient !== null;
+    const sizeConfig = sizeConfigs[size];
+
+    // Button content (icon + text)
+    const renderContent = () => {
+      if (loading) {
+        return <ActivityIndicator size="small" color={getIconColor()} />;
+      }
+
+      return (
+        <View className="flex-row items-center justify-center">
+          {icon && iconPosition === 'left' && (
+            <Ionicons
+              name={icon}
+              size={iconSizeMap[size]}
+              color={getIconColor()}
+              style={{ marginRight: 8 }}
+            />
+          )}
+          <ThemedText
+            variant={textVariantMap[variant]}
+            size={textSizeMap[size]}
+            className={cn(
+              'font-semibold text-center',
+              textColorClasses[variant]
+            )}
+          >
+            {children}
+          </ThemedText>
+          {icon && iconPosition === 'right' && (
+            <Ionicons
+              name={icon}
+              size={iconSizeMap[size]}
+              color={getIconColor()}
+              style={{ marginLeft: 8 }}
+            />
+          )}
+        </View>
+      );
+    };
+
+    // Common styles
+    const commonStyle: StyleProp<ViewStyle> = {
+      width: fullWidth ? '100%' : undefined,
+      opacity: isDisabled ? 0.6 : 1,
+    };
+
+    if (shouldUseGradient) {
+      return (
+        <TouchableOpacity
+          ref={ref as any}
+          disabled={isDisabled}
+          activeOpacity={0.8}
+          style={commonStyle}
+          className={cn(className)}
+          {...props}
+        >
+          <LinearGradient
+            colors={currentGradient!}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={{
+              paddingVertical: sizeConfig.paddingVertical,
+              paddingHorizontal: sizeConfig.paddingHorizontal,
+              borderRadius: sizeConfig.borderRadius,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {renderContent()}
+          </LinearGradient>
+        </TouchableOpacity>
+      );
+    }
+
+    // Non-gradient button styles
+    const getBackgroundColor = () => {
+      switch (variant) {
+        case 'secondary':
+          return isDark ? '#1e293b' : '#f1f5f9';
+        case 'outline':
+          return 'transparent';
+        case 'ghost':
+          return 'transparent';
+        case 'destructive':
+          return '#ef4444';
+        case 'success':
+          return '#22c55e';
+        case 'warning':
+          return '#f59e0b';
+        default:
+          return isDark ? '#38bdf8' : '#0ea5e9';
+      }
+    };
+
+    const getBorderStyle = () => {
+      if (variant === 'outline') {
+        return {
+          borderWidth: 2,
+          borderColor: isDark ? '#475569' : '#e2e8f0',
+        };
+      }
+      return {};
+    };
 
     return (
       <TouchableOpacity
-        ref={buttonRef}
+        ref={ref as any}
         disabled={isDisabled}
-        className={cn(
-          baseClasses,
-          variantClasses[variant],
-          sizeClasses[size],
-          fullWidth && 'w-full',
-          isDisabled && 'opacity-50',
-          className
-        )}
+        activeOpacity={0.8}
+        style={[
+          commonStyle,
+          {
+            backgroundColor: getBackgroundColor(),
+            borderRadius: sizeConfig.borderRadius,
+            ...getBorderStyle(),
+          },
+        ]}
+        className={cn('items-center justify-center', className)}
         {...props}
       >
-        {loading ? (
-          <ActivityIndicator
-            size="small"
-            color={getIconColor()}
-          />
-        ) : (
-          <View className="flex-row items-center">
-            {icon && iconPosition === 'left' && (
-              <Ionicons
-                name={icon}
-                size={iconSizeMap[size]}
-                color={getIconColor()}
-                className="mr-2"
-              />
-            )}
-
-            <ThemedText
-              variant={textVariantMap[variant]}
-              size={textSizeMap[size]}
-              className={cn(
-                'font-inter-semibold text-center',
-                textColorClasses[variant]
-              )}
-            >
-              {children}
-            </ThemedText>
-
-            {icon && iconPosition === 'right' && (
-              <Ionicons
-                name={icon}
-                size={iconSizeMap[size]}
-                color={getIconColor()}
-                className="ml-2"
-              />
-            )}
-          </View>
-        )}
+        <View
+          style={{
+            paddingVertical: sizeConfig.paddingVertical,
+            paddingHorizontal: sizeConfig.paddingHorizontal,
+            width: '100%',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          {renderContent()}
+        </View>
       </TouchableOpacity>
     );
   }
@@ -201,86 +288,231 @@ export const Button = React.forwardRef<typeof TouchableOpacity, ButtonProps>(
 
 Button.displayName = 'Button';
 
-// Icon Button Variant
-interface IconButtonProps
-  extends Omit<ButtonProps, 'children' | 'icon' | 'iconPosition'> {
+// Icon Button Variant - For icon-only buttons
+interface IconButtonProps extends Omit<ButtonProps, 'children' | 'icon' | 'iconPosition' | 'fullWidth'> {
   icon: keyof typeof Ionicons.glyphMap;
   accessibilityLabel: string;
   iconColor?: string;
+  size?: ButtonSize;
+  variant?: ButtonVariant;
 }
 
-export const IconButton = React.forwardRef<
-  typeof TouchableOpacity,
-  IconButtonProps
->(
+export const IconButton = forwardRef<View, IconButtonProps>(
   (
-    { icon, accessibilityLabel, variant = 'ghost', size = 'default', iconColor, className, ...props },
+    { 
+      icon, 
+      accessibilityLabel, 
+      variant = 'ghost', 
+      size = 'default', 
+      iconColor, 
+      className,
+      onPress,
+      disabled,
+      ...props 
+    },
     ref
   ) => {
-    const sizeClasses: Record<ButtonSize, string> = {
-      sm: 'p-2',
-      default: 'p-3',
-      lg: 'p-4',
-      xl: 'p-5',
+    const sizeConfigs: Record<ButtonSize, { padding: number; borderRadius: number; iconSize: number }> = {
+      sm: { padding: 8, borderRadius: 8, iconSize: 18 },
+      default: { padding: 12, borderRadius: 12, iconSize: 20 },
+      lg: { padding: 14, borderRadius: 14, iconSize: 24 },
+      xl: { padding: 16, borderRadius: 16, iconSize: 26 },
     };
 
-    const iconSizeMap: Record<ButtonSize, number> = {
-      sm: 18,
-      default: 20,
-      lg: 24,
-      xl: 26,
+    const { colorScheme } = useColorScheme();
+    const isDark = colorScheme === 'dark';
+
+    const getIconColor = () => {
+      if (iconColor) return iconColor;
+      if (variant === 'default' || variant === 'destructive' || variant === 'success' || variant === 'warning') {
+        return '#ffffff';
+      }
+      return isDark ? '#f1f5f9' : '#0f172a';
     };
+
+    const getBackgroundColor = () => {
+      switch (variant) {
+        case 'default':
+          return isDark ? '#38bdf8' : '#0ea5e9';
+        case 'destructive':
+          return '#ef4444';
+        case 'success':
+          return '#22c55e';
+        case 'warning':
+          return '#f59e0b';
+        case 'secondary':
+          return isDark ? '#1e293b' : '#f1f5f9';
+        default:
+          return 'transparent';
+      }
+    };
+
+    const getBorderStyle = () => {
+      if (variant === 'outline') {
+        return {
+          borderWidth: 2,
+          borderColor: isDark ? '#475569' : '#e2e8f0',
+        };
+      }
+      return {};
+    };
+
+    const sizeConfig = sizeConfigs[size];
 
     return (
-      <Button
-        ref={ref}
-        variant={variant}
-        size={size}
-        icon={icon}
-        iconColor={iconColor}
-        className={cn('px-0', sizeClasses[size], className)}
+      <TouchableOpacity
+        ref={ref as any}
+        activeOpacity={0.7}
+        onPress={onPress}
+        disabled={disabled}
+        style={[
+          {
+            padding: sizeConfig.padding,
+            borderRadius: sizeConfig.borderRadius,
+            backgroundColor: getBackgroundColor(),
+            ...getBorderStyle(),
+          },
+        ]}
+        className={cn('items-center justify-center', className)}
         accessibilityLabel={accessibilityLabel}
         {...props}
       >
-        {''}
-      </Button>
+        <Ionicons name={icon} size={sizeConfig.iconSize} color={getIconColor()} />
+      </TouchableOpacity>
     );
   }
 );
 
 IconButton.displayName = 'IconButton';
 
-// Floating Action Button
-interface FABProps extends Omit<ButtonProps, 'variant' | 'size'> {
+// Floating Action Button - With icon support
+interface FABProps extends Omit<TouchableOpacityProps, 'children'> {
   position?: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
+  icon: keyof typeof Ionicons.glyphMap;
+  iconColor?: string;
+  label?: string;
+  onPress?: () => void;
+  disabled?: boolean;
+  className?: string;
 }
 
-export const FAB = React.forwardRef<typeof TouchableOpacity, FABProps>(
-  ({ children, icon, position = 'bottom-right', className, ...props }, ref) => {
-    const positionClasses = {
-      'bottom-right': 'bottom-6 right-6',
-      'bottom-left': 'bottom-6 left-6',
-      'top-right': 'top-6 right-6',
-      'top-left': 'top-6 left-6',
+export const FAB = forwardRef<View, FABProps>(
+  ({ 
+    icon, 
+    label, 
+    position = 'bottom-right', 
+    className, 
+    style, 
+    iconColor,
+    onPress,
+    disabled,
+    ...props 
+  }, ref) => {
+    const { colorScheme } = useColorScheme();
+    const isDark = colorScheme === 'dark';
+    
+    const gradientColors: [string, string] = isDark 
+      ? ['#38bdf8', '#818cf8'] 
+      : ['#0ea5e9', '#6366f1'];
+
+    const iconSize = label ? 20 : 24;
+    const iconColorValue = iconColor || '#ffffff';
+
+    const positionStyles = {
+      'bottom-right': { bottom: 24, right: 24 },
+      'bottom-left': { bottom: 24, left: 24 },
+      'top-right': { top: 24, right: 24 },
+      'top-left': { top: 24, left: 24 },
     };
 
     return (
-      <Button
-        ref={ref}
-        variant="default"
-        size="default"
-        icon={icon}
-        className={cn(
-          'absolute shadow-elevated rounded-full py-1',
-          positionClasses[position],
-          className
-        )}
+      <TouchableOpacity
+        ref={ref as any}
+        activeOpacity={0.8}
+        onPress={onPress}
+        disabled={disabled}
+        style={[
+          {
+            position: 'absolute',
+            ...positionStyles[position],
+          },
+          style,
+        ]}
+        className={cn('shadow-elevated', className)}
         {...props}
       >
-        {children}
-      </Button>
+        <LinearGradient
+          colors={gradientColors}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={{
+            paddingHorizontal: label ? 20 : 16,
+            paddingVertical: label ? 12 : 16,
+            borderRadius: label ? 40 : 32,
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexDirection: 'row',
+            gap: 8,
+          }}
+        >
+          <Ionicons name={icon} size={iconSize} color={iconColorValue} />
+          {label && (
+            <Text className="text-white font-semibold text-base">
+              {label}
+            </Text>
+          )}
+        </LinearGradient>
+      </TouchableOpacity>
     );
   }
 );
 
 FAB.displayName = 'FAB';
+
+// Secondary Button (for subtle actions)
+export const SecondaryButton = forwardRef<View, ButtonProps>(
+  (props, ref) => {
+    return (
+      <Button
+        ref={ref}
+        variant="secondary"
+        gradient={false}
+        {...props}
+      />
+    );
+  }
+);
+
+SecondaryButton.displayName = 'SecondaryButton';
+
+// Outline Button (for less prominent actions)
+export const OutlineButton = forwardRef<View, ButtonProps>(
+  (props, ref) => {
+    return (
+      <Button
+        ref={ref}
+        variant="outline"
+        gradient={false}
+        {...props}
+      />
+    );
+  }
+);
+
+OutlineButton.displayName = 'OutlineButton';
+
+// Ghost Button (for icon-only actions)
+export const GhostButton = forwardRef<View, ButtonProps>(
+  (props, ref) => {
+    return (
+      <Button
+        ref={ref}
+        variant="ghost"
+        gradient={false}
+        {...props}
+      />
+    );
+  }
+);
+
+GhostButton.displayName = 'GhostButton';

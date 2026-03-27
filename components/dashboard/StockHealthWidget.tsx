@@ -13,6 +13,7 @@ import { BaseWidget } from './BaseWidget';
 import { useRouter } from "expo-router";
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
+import { of } from '@nozbe/watermelondb/utils/rx';
 
 interface StockData {
   total: number;
@@ -234,7 +235,7 @@ const enhance = withObservables(
   ({ currentShop }: { currentShop: any }) => {
     if (!currentShop) {
       return {
-        products: [],
+        products: of([]),// [],
       };
     }
 

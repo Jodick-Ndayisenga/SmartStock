@@ -5,13 +5,14 @@ import i18nConfig from "@/language/i18nextConfig";
 import { ThemeProvider } from "@/providers/ThemeProvider";
 import { useFonts } from "expo-font";
 import { Stack, useRouter, useSegments } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { use, useEffect, useState } from "react";
 import { ActivityIndicator, View, Text } from "react-native";
 import "@/app/global.css";
 import { GluestackUIProvider } from "@/components/ui/gluestack-ui-provider";
 import { ROUTES } from "@/constants/routes";
 import { allowedProtectedPrefixes } from "@/constants/allowedPaths";
 import { useStockNotifications } from '@/hooks/useStockNotifications';
+import { useColorScheme } from "nativewind";
 
 function AppContent() {
   const { 
@@ -21,8 +22,10 @@ function AppContent() {
     currentShop,
     isAuthenticated,
     sessionValidated,
-    validateSession 
+    validateSession ,
+    selectedTheme
   } = useAuth();
+  const {setColorScheme} = useColorScheme();
   
   const router = useRouter();
   const segments = useSegments();
@@ -60,6 +63,16 @@ function AppContent() {
     };
     checkSession();
   }, [loading, validationAttempted]);
+
+  // check them and update it
+
+  useEffect(() => {
+    if (selectedTheme) {
+      //setUserTheme(selectedTheme);
+      console.log('Selected theme:', selectedTheme);
+      setColorScheme(selectedTheme);
+    }
+  }, [selectedTheme]);
 
   // PHASE 2: Navigation Guard
   useEffect(() => {

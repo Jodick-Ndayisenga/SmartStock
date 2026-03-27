@@ -14,6 +14,7 @@ import { Contact } from '@/database/models/Contact';
 import DebtService, { DebtorSummary } from '@/services/debtService';
 import { formatCurrency } from '@/utils/dashboardUtils';
 import { useRouter } from 'expo-router';
+import { of } from '@nozbe/watermelondb/utils/rx';
 
 interface StatsData {
   weeklySales: number;
@@ -239,9 +240,9 @@ const enhance = withObservables(
   ({ currentShop }: { currentShop: any }) => {
     if (!currentShop) {
       return {
-        weeklyTransactions: [],
-        monthlyTransactions: [],
-        customers: [],
+        weeklyTransactions: of([]), // or [],
+        monthlyTransactions: of([]), // or [],
+        customers: of([]), // or [],
       };
     }
 

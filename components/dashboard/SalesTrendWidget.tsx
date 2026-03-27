@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
 import { useRouter } from 'expo-router';
 import { Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
+import { of } from '@nozbe/watermelondb/utils/rx';
 
 const screenWidth = Dimensions.get('window').width - 48; // Accounting for padding
 
@@ -433,7 +434,7 @@ const enhance = withObservables(
   ({ currentShop }: { currentShop: any }) => {
     if (!currentShop) {
       return {
-        transactions: [],
+        transactions: of([]), // or [],
       };
     }
 

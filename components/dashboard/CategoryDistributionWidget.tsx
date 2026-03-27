@@ -15,6 +15,7 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useColorScheme } from 'nativewind';
 import { LinearGradient } from 'expo-linear-gradient';
+import { of } from '@nozbe/watermelondb/utils/rx';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -437,7 +438,7 @@ const enhance = withObservables(
   ({ currentShop }: { currentShop: any }) => {
     if (!currentShop) {
       return {
-        products: [],
+        products: of([]), // or [],
       };
     }
 

@@ -1001,6 +1001,7 @@ import ExpenseCategory from '@/database/models/ExpenseCategory';
 import { Contact } from '@/database/models/Contact';
 import { useAuth } from '@/context/AuthContext';
 import database from '@/database';
+import { of } from '@nozbe/watermelondb/utils/rx';
 
 // Types
 interface TransactionItem {
@@ -1929,11 +1930,11 @@ const enhance = withObservables(
   ({ currentShop }: { currentShop: any }) => {
     if (!currentShop) {
       return {
-        transactions: [],
-        payments: [],
-        accounts: [],
-        categories: [],
-        contacts: [],
+        transactions: of([]), // or [],
+        payments: of([]), // or [],
+        accounts: of([]), // or [],
+        categories: of([]), // or [],
+        contacts: of([]), // or [],
       };
     }
 

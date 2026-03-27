@@ -14,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useColorScheme } from 'nativewind';
 import { BaseWidget } from "./BaseWidget";
 import { PieChart } from "react-native-gifted-charts";
+import { of } from "@nozbe/watermelondb/utils/rx";
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -322,7 +323,7 @@ const enhance = withObservables(
   ({ currentShop }: { currentShop: any }) => {
     if (!currentShop) {
       return {
-        cashAccounts: [],
+        cashAccounts: of([]), // or [],
       };
     }
 

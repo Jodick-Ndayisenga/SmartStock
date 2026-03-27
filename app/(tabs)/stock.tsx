@@ -30,6 +30,7 @@ import { FAB } from '@/components/ui/Button';
 import { Product } from '@/database/models/Product';
 import { StockMovement } from '@/database/models/StockMovement';
 import { useAuth } from '@/context/AuthContext';
+import { of } from '@nozbe/watermelondb/utils/rx';
 
 interface ProductStock extends Product {
   currentStock: number;
@@ -681,8 +682,8 @@ const enhance = withObservables(
   ({ currentShop }: { currentShop: any }) => {
     if (!currentShop) {
       return {
-        products: [],
-        stockMovements: [],
+        products: of([]), // or [],
+        stockMovements: of([]), // or [],
       };
     }
 

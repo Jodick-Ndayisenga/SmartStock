@@ -23,7 +23,6 @@ import { StockHealthWidget } from '@/components/dashboard/StockHealthWidget';
 import { CreditHealthWidget } from '@/components/dashboard/CreditHealthWidget';
 import { QuickStatsWidget } from '@/components/dashboard/QuickStatsWidget';
 import { CategoryDistributionWidget } from '@/components/dashboard/CategoryDistributionWidget';
-import { PaymentMethodsWidget } from '@/components/dashboard/PaymentMethodsWidget';
 import CustomDialog from '@/components/ui/CustomDialog';
 
 // Hooks
@@ -72,6 +71,9 @@ export default function DashboardScreen() {
   useEffect(() => {
     setShopReady(!!currentShop);
   }, [currentShop]);
+
+
+
 
   const requestNotificationPermissions = async () => {
     try {

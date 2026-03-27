@@ -47,6 +47,7 @@ import CustomDialog from '@/components/ui/CustomDialog';
 import { CashFlowStatement } from '@/components/cashFlow/CashFlowStatement';
 import { CashFlowForecast } from '@/components/cashFlow/CashFlowForecast';
 import { CashFlowProjection } from '@/components/cashFlow/CashFlowProjection';
+import { of } from '@nozbe/watermelondb/utils/rx';
 
 // Types
 interface CashFlowSummary {
@@ -2167,12 +2168,12 @@ const enhance = withObservables(
   ({ currentShop }: { currentShop: any }) => {
     if (!currentShop) {
       return {
-        transactions: [],
-        accountTransactions: [],
-        accounts: [],
-        products: [],
-        stockMovements: [],
-        contacts: [],
+        transactions: of([]), // or [],
+        accountTransactions: of([]), // or [],
+        accounts: of([]), // or [],
+        products: of([]), // or [],
+        stockMovements: of([]), // or [],
+        contacts: of([]), // or [],
       };
     }
 

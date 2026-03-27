@@ -45,6 +45,7 @@ import { Product } from '@/database/models/Product';
 
 // Types
 import { ViewMode, StockStatus } from '@/types/sales';
+import { of } from '@nozbe/watermelondb/utils/rx';
 
 
 interface SalesScreenProps {
@@ -65,7 +66,6 @@ function SalesScreen({ products, customers }: SalesScreenProps) {
   const [isOffline, setIsOffline] = useState(false);
   const [queuedSales, setQueuedSales] = useState<any[]>([]);
   const [successDialogData, setSuccessDialogData] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
   
   // Custom hooks
   const {
@@ -203,12 +203,7 @@ function SalesScreen({ products, customers }: SalesScreenProps) {
     loadQueuedSales();
   }, []);
 
-  useEffect(() => {
-    // Set loading to false once products are loaded
-    if (products.length > 0 || customers.length > 0) {
-      setIsLoading(false);
-    }
-  }, [products, customers]);
+
 
   const loadQueuedSales = async () => {
     try {
@@ -232,15 +227,14 @@ function SalesScreen({ products, customers }: SalesScreenProps) {
     }
   };
 
-  // Loading state
-  if (isLoading) {
-    return (
-      <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
-        <PremiumHeader title={t('sales.record_sale')} showBackButton />
-        <Loading />
-      </View>
-    );
-  }
+  if (!products || !customers) {
+  return (
+    <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
+      <PremiumHeader title={t('sales.record_sale')} showBackButton />
+      <Loading />
+    </View>
+  );
+}
 
   return (
     <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
@@ -412,8 +406,8 @@ const enhance = withObservables(
   ({ currentShop }) => {
     if (!currentShop) {
       return {
-        products: [],
-        customers: [],
+        products: of([]), // or [],
+        customers: of([]), // or [],
       };
     }
 

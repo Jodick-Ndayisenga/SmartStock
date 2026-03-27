@@ -30,6 +30,7 @@ import database from '@/database';
 import { Shop } from '@/database/models/Shop';
 import { Membership } from '@/database/models/Membership';
 import { useAuth } from '@/context/AuthContext';
+import { Product } from '@/database/models/Product';
 
 const { width } = Dimensions.get('window');
 
@@ -45,8 +46,6 @@ interface ShopWithDetails {
   productCount: number;
   userRole: string;
   isOwner: boolean;
-  createdAt: Date;
-  updatedAt: Date;
 }
 
 // Animated Shop Card Component
@@ -90,11 +89,11 @@ const ShopCard = ({ shop, isCurrent, onPress, onLongPress, onViewDebtors, onView
   const getRoleColor = () => {
     switch (shop.userRole) {
       case 'owner':
-        return ['#f59e0b', '#f97316']; // amber to orange
+        return ['#f59e0b', '#f97316'];
       case 'manager':
-        return ['#3b82f6', '#06b6d4']; // blue to cyan
+        return ['#3b82f6', '#06b6d4'];
       default:
-        return ['#6b7280', '#4b5563']; // gray shades
+        return ['#6b7280', '#4b5563'];
     }
   };
 
@@ -273,6 +272,7 @@ const ShopCard = ({ shop, isCurrent, onPress, onLongPress, onViewDebtors, onView
     </Animated.View>
   );
 };
+
 // Join Shop Modal
 const JoinShopModal = ({ visible, onClose, onSubmit, loading }: any) => {
   const [branchCode, setBranchCode] = useState('');
@@ -380,18 +380,19 @@ const TipsCard = () => {
 
 // Main Component
 export default function ShopManager() {
-  const { user, currentShop, switchShop } = useAuth();
+  const { user, currentShop, switchShop, clearInvalidSession, logout } = useAuth();
   const router = useRouter();
   const { t } = useTranslation();
   
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [shops, setShops] = useState<ShopWithDetails[]>([]);
-  const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [selectedShop, setSelectedShop] = useState<ShopWithDetails | null>(null);
   const [showActionSheet, setShowActionSheet] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const scrollY = useRef(new Animated.Value(0)).current;
 
@@ -416,8 +417,7 @@ export default function ShopManager() {
               .query(Q.where('shop_id', membership.shopId))
               .fetch();
             
-            const productsCollection = database.get('products');
-            const products = await productsCollection
+            const products = await database.get<Product>('products')
               .query(
                 Q.where('shop_id', membership.shopId),
                 Q.where('is_active', true))
@@ -434,8 +434,6 @@ export default function ShopManager() {
               productCount: products.length,
               userRole: membership.role,
               isOwner: membership.role === 'owner',
-              createdAt: shop.createdAt,
-              updatedAt: shop.updatedAt,
             };
           } catch (error) {
             console.error('Error processing shop:', error);
@@ -463,7 +461,6 @@ export default function ShopManager() {
     setRefreshing(true);
     loadShops();
   };
-
 
   const handleJoinShop = async (branchCode: string) => {
     if (!user?.id) return;
@@ -495,14 +492,14 @@ export default function ShopManager() {
         return;
       }
 
-      await database.get<Membership>('memberships').create(membershipRecord => {
-        membershipRecord.userId = user.id;
-        membershipRecord.shopId = shop.id;
-        membershipRecord.role = 'staff';
-        membershipRecord.status = 'active';
-        membershipRecord.joinedAt = Date.now();
-        membershipRecord.createdAt = new Date();
-        membershipRecord.updatedAt = new Date();
+      await database.write(async () => {
+        await database.get<Membership>('memberships').create(membershipRecord => {
+          membershipRecord.userId = user.id;
+          membershipRecord.shopId = shop.id;
+          membershipRecord.role = 'staff';
+          membershipRecord.status = 'active';
+          membershipRecord.joinedAt = Date.now();
+        });
       });
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -516,11 +513,115 @@ export default function ShopManager() {
     }
   };
 
+  /**
+   * Delete all data associated with a shop using destroyPermanently
+   */
+
+    const deleteAllShopData = async (shopId: string) => {
+    const tables = [
+      'transactions',
+      'payments',
+      'account_transactions',
+      'cash_accounts',
+      'contacts',
+      'products',
+      'stock_movements',
+      'expense_categories',
+      'memberships',
+    ];
+
+    try {
+      // 1. Fetch all records first (outside write)
+      const allRecords: any[] = [];
+
+      for (const tableName of tables) {
+        try {
+          const collection = database.get(tableName);
+          const records = await collection
+            .query(Q.where('shop_id', shopId))
+            .fetch();
+
+          if (records.length > 0) {
+            console.log(`Found ${records.length} in ${tableName}`);
+            allRecords.push(...records);
+          }
+        } catch (error) {
+          console.error(`Error fetching ${tableName}:`, error);
+        }
+      }
+
+      // 2. Delete everything in ONE batch
+      await database.write(async () => {
+        await database.batch(
+          ...allRecords.map(record => record.prepareDestroyPermanently())
+        );
+      });
+
+      console.log(`Deleted ${allRecords.length} total records`);
+
+      // 3. Cleanup session
+      await clearInvalidSession();
+
+      // ⚠️ Avoid immediate logout crash
+      setTimeout(() => {
+        logout();
+      }, 0);
+
+    } catch (error) {
+      console.error('Error deleting shop data:', error);
+    }
+  };
+
+  const handleDeleteShop = async (shop: ShopWithDetails) => {
+    if (!shop.isOwner) {
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      // First, get the shop model
+      const shopModel = await database.get<Shop>('shops').find(shop.id);
+      
+      if (!shopModel) {
+        throw new Error('Shop not found');
+      }
+      
+      // Delete all related data
+      await deleteAllShopData(shop.id);
+      
+      // Finally, delete the shop itself
+      await database.write(async () => {
+        await shopModel.destroyPermanently();
+      });
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+      // Refresh shop list
+      await loadShops();
+      
+      // Switch to another shop if current shop was deleted
+      if (currentShop?.id === shop.id) {
+        const otherShops = shops.filter(s => s.id !== shop.id);
+        if (otherShops.length > 0) {
+          await switchShop(otherShops[0].id);
+        }
+      }
+      
+      setShowDeleteConfirm(false);
+      setShowActionSheet(false);
+      setSelectedShop(null);
+    } catch (error) {
+      console.error('Error deleting shop:', error);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const handleSwitchShop = async (shop: ShopWithDetails) => {
     await switchShop(shop.id);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     router.push({
-      pathname: '/(auth)/create-shop',
+      pathname: '/create-shop',
       params: { id: shop.id }
     });
   };
@@ -543,11 +644,11 @@ export default function ShopManager() {
 
       if (memberships.length > 0) {
         await database.write(async () => {
-          await memberships[0].markAsDeleted();
+          await memberships[0].destroyPermanently();
         });
 
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        loadShops();
+        await loadShops();
         
         if (currentShop?.id === shop.id && shops.length > 1) {
           const otherShop = shops.find(s => s.id !== shop.id);
@@ -555,31 +656,11 @@ export default function ShopManager() {
             await switchShop(otherShop.id);
           }
         }
+        
+        setShowActionSheet(false);
       }
     } catch (error) {
       console.error('Error leaving shop:', error);
-    }
-  };
-
-  const handleDeleteShop = async (shop: ShopWithDetails) => {
-    try {
-      const shopModel = await database.get<Shop>('shops').find(shop.id);
-      
-      await database.write(async () => {
-        await shopModel.markAsDeleted();
-      });
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      loadShops();
-      
-      if (currentShop?.id === shop.id && shops.length > 1) {
-        const otherShop = shops.find(s => s.id !== shop.id);
-        if (otherShop) {
-          await switchShop(otherShop.id);
-        }
-      }
-    } catch (error) {
-      console.error('Error deleting shop:', error);
     }
   };
 
@@ -593,8 +674,6 @@ export default function ShopManager() {
 
   return (
     <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
-      
-
       <Animated.ScrollView
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
@@ -615,7 +694,7 @@ export default function ShopManager() {
             className="flex-row gap-3 mb-6"
           >
             <TouchableOpacity
-              onPress={() => router.push('/(auth)/create-shop')}
+              onPress={() => router.push('/create-shop')}
               className="flex-1 rounded-2xl py-4 flex-row items-center justify-center overflow-hidden"
               activeOpacity={0.9}
             >
@@ -659,7 +738,7 @@ export default function ShopManager() {
                   onLongPress={() => handleSwitchShop(shop)}
                   onViewDebtors={() => router.push(`/shops/${shop.id}/debtors`)}
                   onViewAccounts={() => router.push({
-                    pathname: '/(auth)/cash-account',
+                    pathname: '/cash-account',
                     params: { shopId: shop.id }
                   })}
                 />
@@ -677,7 +756,7 @@ export default function ShopManager() {
                 description="Create your first shop or join an existing one to get started"
                 action={{
                   label: "Create First Shop",
-                  onPress: () => setShowCreateModal(true),
+                  onPress: () => router.push('/create-shop'),
                 }}
               />
             </MotiView>
@@ -687,7 +766,6 @@ export default function ShopManager() {
           {shops.length > 0 && <TipsCard />}
         </View>
       </Animated.ScrollView>
-
 
       <JoinShopModal
         visible={showJoinModal}
@@ -704,7 +782,10 @@ export default function ShopManager() {
           title={selectedShop.name}
           description={`Manage ${selectedShop.name} - ${selectedShop.userRole.charAt(0).toUpperCase() + selectedShop.userRole.slice(1)} Access`}
           icon="business-outline"
-          onClose={() => setShowActionSheet(false)}
+          onClose={() => {
+            setShowActionSheet(false);
+            setSelectedShop(null);
+          }}
           actions={[
             {
               label: 'Switch Shop',
@@ -718,24 +799,58 @@ export default function ShopManager() {
               label: 'Edit Shop',
               onPress: () => {
                 router.push({
-                  pathname: '/(auth)/create-shop',
+                  pathname: '/create-shop',
                   params: { shopId: selectedShop.id }
                 });
                 setShowActionSheet(false);
               },
               variant: 'outline',
             },
-            selectedShop.isOwner && {
-              label: 'Delete',
+            !selectedShop.isOwner && {
+              label: 'Leave Shop',
               onPress: () => {
-                handleDeleteShop(selectedShop);
                 setShowActionSheet(false);
+                handleLeaveShop(selectedShop);
+              },
+              variant: 'destructive',
+            },
+            selectedShop.isOwner && {
+              label: 'Delete Shop',
+              onPress: () => {
+                setShowActionSheet(false);
+                setShowDeleteConfirm(true);
               },
               variant: 'destructive',
             },
           ].filter(Boolean) as any}
-
           buttonColumn={true}
+        />
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {selectedShop && (
+        <CustomDialog
+          visible={showDeleteConfirm}
+          variant="error"
+          title={`Delete ${selectedShop.name}?`}
+          description={`This will permanently delete:\n\n• All products and stock movements\n• All transactions and payments\n• All accounts and account transactions\n• All customers and contacts\n• All expense categories\n• All memberships\n\nThis action cannot be undone!`}
+          icon="trash-outline"
+          onClose={() => setShowDeleteConfirm(false)}
+          actions={[
+            {
+              label: 'Cancel',
+              onPress: () => setShowDeleteConfirm(false),
+              variant: 'outline',
+            },
+            {
+              label: 'DELETE',
+              onPress: () => handleDeleteShop(selectedShop),
+              variant: 'destructive',
+              disabled: deleting,
+            },
+          ]}
+          buttonColumn={false}
+          loading={deleting}
         />
       )}
     </View>

@@ -16,6 +16,7 @@ import { BaseWidget } from "./BaseWidget";
 import { Product } from "@/database/models/Product";
 import { useColorScheme } from 'nativewind';
 import * as Haptics from 'expo-haptics';
+import { of } from "@nozbe/watermelondb/utils/rx";
 
 interface TodayData {
   sales: number;
@@ -367,10 +368,10 @@ const enhance = withObservables(
   ({ currentShop }: { currentShop: any }) => {
     if (!currentShop) {
       return {
-        todayTransactions: [],
-        yesterdayTransactions: [],
-        todayAccountTransactions: [],
-        products: [],
+        todayTransactions: of([]),
+        yesterdayTransactions: of([]),
+        todayAccountTransactions: of([]),
+        products: of([]),
       };
     }
 
