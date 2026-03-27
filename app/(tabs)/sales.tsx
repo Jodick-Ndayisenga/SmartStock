@@ -135,7 +135,6 @@ function SalesScreen({ products, customers }: SalesScreenProps) {
     customers,
     currentShop,
     user,
-    isOffline,
     clearCart,
     onSuccess: handleSuccessfulSale,
     onError: handleSaleError,
