@@ -5,7 +5,6 @@ import { Q } from '@nozbe/watermelondb';
 import React, { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Alert,
   FlatList,
   Image,
   RefreshControl,
@@ -422,7 +421,7 @@ const productsWithStock = useMemo((): ProductWithStock[] => {
       <View className="flex-1">
         {/* Search and Controls */}
         {filteredAndSortedProducts.length > 0 && (
-          <Card variant="elevated" className="mx-4 mt-4 mb-2">
+          <Card variant="elevated" className="mx-2 mt-4 mb-2">
             <CardContent className="p-4">
               {/* View Controls */}
               <View className="flex-row justify-between items-center">
@@ -532,7 +531,7 @@ const productsWithStock = useMemo((): ProductWithStock[] => {
           }
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{
-            paddingHorizontal: viewMode === 'grid' ? 8 : 0,
+            paddingHorizontal: viewMode === 'grid' ? 4 : 0,
             paddingBottom: 100
           }}
           renderItem={({ item }) => 

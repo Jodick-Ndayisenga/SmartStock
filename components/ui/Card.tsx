@@ -66,7 +66,7 @@ export const CardHeader = React.forwardRef<View, CardHeaderProps>(
         {...props}
       >
         {title && (
-          <ThemedText size='lg' className="text-lg font-semibold text-foreground">
+          <ThemedText size='lg' className="text-lg font-semibold text-foreground dark:text-dark-foreground">
             {title}
           </ThemedText>
         )}

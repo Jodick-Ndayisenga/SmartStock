@@ -308,6 +308,7 @@ const TransactionDetailsInner = ({
     <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
       <PremiumHeader 
         title="Transaction Details"
+        subtitle={`${details.transactionType.toUpperCase()} - ${details.transactionNumber}`}
         showBackButton
       />
       <ScrollView showsVerticalScrollIndicator={false} className="flex-1 px-2">

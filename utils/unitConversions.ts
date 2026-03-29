@@ -5,7 +5,7 @@ import { UNIT_OPTIONS } from '@/constants/unitOptions';
 // TYPES
 // ============================================================================
 
-export type UnitType = 'weight' | 'volume' | 'length' | 'piece' | 'pack';
+export type UnitType = 'piece' | 'weight' | 'volume' | 'length' | 'pack' | 'unite';
 
 export type UnitInfo = {
   value: string;

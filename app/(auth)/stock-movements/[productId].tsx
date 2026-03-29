@@ -1,9 +1,8 @@
 // app/stock-movements/[productId].tsx
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   ScrollView,
-  Alert,
   TouchableOpacity,
   RefreshControl,
   FlatList,
@@ -13,12 +12,14 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import database from '@/database';
 import { Q } from '@nozbe/watermelondb';
+import { withObservables } from '@nozbe/watermelondb/react';
 import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { useColorScheme } from 'nativewind';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { of } from '@nozbe/watermelondb/utils/rx';
 
 // Models
 import { Product } from '@/database/models/Product';
@@ -30,8 +31,8 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent } from '@/components/ui/Card';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Loading } from '@/components/ui/Loading';
 import { EmptyState } from '@/components/ui/EmptyState';
+import CustomDialog from '@/components/ui/CustomDialog';
 
 // ============================================================================
 // TYPES
@@ -120,43 +121,44 @@ const SORT_OPTIONS = [
 ];
 
 // ============================================================================
+// PROPS INTERFACE
+// ============================================================================
+
+interface StockMovementsScreenProps {
+  product: Product | null;
+  movements: StockMovement[];
+}
+
+// ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
-export default function StockMovementsScreen() {
+function StockMovementsScreen({ product, movements }: StockMovementsScreenProps) {
   const router = useRouter();
-  const params = useLocalSearchParams();
   const { t } = useTranslation();
   const { currentShop, user } = useAuth();
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
 
-  const productId = params.productId as string;
-
-  // States
-  const [loading, setLoading] = useState(true);
+  // UI States
   const [refreshing, setRefreshing] = useState(false);
-  const [product, setProduct] = useState<Product | null>(null);
-  const [movements, setMovements] = useState<MovementWithProduct[]>([]);
-  const [filteredMovements, setFilteredMovements] = useState<MovementWithProduct[]>([]);
-  
-  // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState<MovementType | 'all'>('all');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest');
   const [showFilters, setShowFilters] = useState(false);
   
-  // Stats
-  const [stats, setStats] = useState({
-    totalIn: 0,
-    totalOut: 0,
-    netChange: 0,
-    totalValue: 0,
-    averagePrice: 0,
-    movementCount: 0,
+  // Dialog states
+  const [dialogVisible, setDialogVisible] = useState(false);
+  const [dialogConfig, setDialogConfig] = useState({
+    title: '',
+    description: '',
+    variant: 'info' as 'info' | 'success' | 'warning' | 'error',
+    icon: 'information-circle' as keyof typeof Ionicons.glyphMap,
+    showCancel: false,
+    actions: [] as { label: string; onPress: () => void; variant?: 'default' | 'outline' | 'destructive' | 'success' | 'warning' }[]
   });
-
+  
   // New movement modal
   const [showNewMovement, setShowNewMovement] = useState(false);
   const [newMovement, setNewMovement] = useState({
@@ -167,112 +169,74 @@ export default function StockMovementsScreen() {
     expiryDate: '',
   });
 
-  // ==========================================================================
-  // LOAD DATA
-  // ==========================================================================
+  // Transform movements with product info
+  const movementsWithProduct = useMemo((): MovementWithProduct[] => {
+    if (!product) return [];
+    
+    return movements.map(m => ({
+      id: m.id,
+      productId: m.productId,
+      productName: product.name,
+      productUnit: product.baseUnit,
+      quantity: m.quantity,
+      movementType: m.movementType,
+      batchNumber: m.batchNumber,
+      expiryDate: m.expiryDate,
+      supplierId: m.supplierId,
+      customerId: m.customerId,
+      referenceId: m.referenceId,
+      notes: m.notes,
+      recordedBy: m.recordedBy,
+      timestamp: m.timestamp,
+    }));
+  }, [movements, product]);
 
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      
-      // Load product
-      const products = await database.get<Product>('products')
-        .query(Q.where('id', productId))
-        .fetch();
-
-      if (products.length === 0) {
-        throw new Error('Product not found');
-      }
-
-      const p = products[0];
-      setProduct(p);
-
-      // Load stock movements
-      const movementsCollection = database.get<StockMovement>('stock_movements');
-      const allMovements = await movementsCollection
-        .query(
-          Q.where('product_id', productId),
-          Q.where('shop_id', currentShop?.id || ''),
-          Q.sortBy('timestamp', Q.desc)
-        )
-        .fetch();
-
-      // Transform movements with product info
-      const transformedMovements: MovementWithProduct[] = allMovements.map(m => ({
-        id: m.id,
-        productId: m.productId,
-        productName: p.name,
-        productUnit: p.baseUnit,
-        quantity: m.quantity,
-        movementType: m.movementType,
-        batchNumber: m.batchNumber,
-        expiryDate: m.expiryDate,
-        supplierId: m.supplierId,
-        customerId: m.customerId,
-        referenceId: m.referenceId,
-        notes: m.notes,
-        recordedBy: m.recordedBy,
-        timestamp: m.timestamp,
-      }));
-
-      setMovements(transformedMovements);
-      
-      // Calculate stats
-      calculateStats(transformedMovements, p);
-      
-    } catch (error) {
-      console.error('Error loading data:', error);
-      Alert.alert('Erreur', 'Impossible de charger les données');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+  // Calculate stats from reactive data
+  const stats = useMemo(() => {
+    if (!product) {
+      return {
+        totalIn: 0,
+        totalOut: 0,
+        netChange: 0,
+        totalValue: 0,
+        averagePrice: 0,
+        movementCount: 0,
+      };
     }
-  };
 
-  useEffect(() => {
-    loadData();
-  }, [productId, currentShop?.id]);
-
-  // ==========================================================================
-  // CALCULATE STATS
-  // ==========================================================================
-
-  const calculateStats = (movs: MovementWithProduct[], prod: Product) => {
     let totalIn = 0;
     let totalOut = 0;
     let totalValue = 0;
 
-    movs.forEach(m => {
+    movementsWithProduct.forEach(m => {
+      const absQuantity = Math.abs(m.quantity);
       if (m.movementType === 'IN' || m.movementType === 'TRANSFER_IN') {
-        totalIn += Math.abs(m.quantity);
+        totalIn += absQuantity;
       } else if (m.movementType === 'SALE' || m.movementType === 'TRANSFER_OUT') {
-        totalOut += Math.abs(m.quantity);
+        totalOut += absQuantity;
       } else if (m.movementType === 'ADJUSTMENT') {
         if (m.quantity > 0) totalIn += m.quantity;
-        else totalOut += Math.abs(m.quantity);
+        else totalOut += absQuantity;
       }
     });
 
     const netChange = totalIn - totalOut;
-    const currentStockValue = (prod.stockQuantity || 0) * prod.costPricePerBase;
+    const currentStockValue = (product.stockQuantity || 0) * product.costPricePerBase;
     const avgPrice = totalIn > 0 ? totalValue / totalIn : 0;
 
-    setStats({
+    return {
       totalIn,
       totalOut,
       netChange,
       totalValue: currentStockValue,
       averagePrice: avgPrice,
-      movementCount: movs.length,
-    });
-  };
+      movementCount: movementsWithProduct.length,
+    };
+  }, [movementsWithProduct, product]);
 
-  // ==========================================================================
-  // FILTER AND SORT MOVEMENTS
-  // ==========================================================================
-
-  const applyFilters = useCallback(() => {
-    let filtered = [...movements];
+  // Filter and sort movements
+  const filteredMovements = useMemo(() => {
+    let filtered = [...movementsWithProduct];
 
     // Filter by type
     if (selectedType !== 'all') {
@@ -326,12 +290,34 @@ export default function StockMovementsScreen() {
         break;
     }
 
-    setFilteredMovements(filtered);
-  }, [movements, selectedType, searchQuery, timeFilter, sortOrder]);
+    return filtered;
+  }, [movementsWithProduct, selectedType, searchQuery, timeFilter, sortOrder]);
 
-  useEffect(() => {
-    applyFilters();
-  }, [movements, selectedType, searchQuery, timeFilter, sortOrder]);
+  // ==========================================================================
+  // DIALOG HELPERS
+  // ==========================================================================
+
+  const showDialog = useCallback((
+    title: string,
+    description: string,
+    variant: 'info' | 'success' | 'warning' | 'error' = 'info',
+    actions: { label: string; onPress: () => void; variant?: 'default' | 'outline' | 'destructive' | 'success' | 'warning' }[] = []
+  ) => {
+    let icon: keyof typeof Ionicons.glyphMap = 'information-circle';
+    if (variant === 'success') icon = 'checkmark-circle';
+    if (variant === 'warning') icon = 'alert-circle';
+    if (variant === 'error') icon = 'close-circle';
+    
+    setDialogConfig({
+      title,
+      description,
+      variant,
+      icon,
+      showCancel: actions.length === 0,
+      actions: actions.length > 0 ? actions : [{ label: 'OK', onPress: () => setDialogVisible(false), variant: 'default' }]
+    });
+    setDialogVisible(true);
+  }, []);
 
   // ==========================================================================
   // CREATE NEW MOVEMENT
@@ -341,17 +327,17 @@ export default function StockMovementsScreen() {
     if (!product || !currentShop || !user) return;
 
     if (newMovement.quantity <= 0) {
-      Alert.alert('Erreur', 'La quantité doit être supérieure à 0');
+      showDialog('Erreur', 'La quantité doit être supérieure à 0', 'error');
       return;
     }
 
     // Check if enough stock for outgoing movements
     if ((newMovement.type === 'SALE' || newMovement.type === 'TRANSFER_OUT' || newMovement.type === 'ADJUSTMENT') && 
         newMovement.quantity > (product.stockQuantity || 0)) {
-      Alert.alert(
+      showDialog(
         'Stock insuffisant',
         `Vous ne pouvez pas retirer ${newMovement.quantity} ${product.baseUnit} alors que le stock actuel est de ${product.stockQuantity} ${product.baseUnit}`,
-        [{ text: 'OK' }]
+        'error'
       );
       return;
     }
@@ -384,7 +370,7 @@ export default function StockMovementsScreen() {
         });
       });
 
-      // Reset form and refresh data
+      // Reset form and close modal
       setNewMovement({
         type: 'IN',
         quantity: 1,
@@ -393,12 +379,11 @@ export default function StockMovementsScreen() {
         expiryDate: '',
       });
       setShowNewMovement(false);
-      loadData();
 
-      Alert.alert('Succès', 'Mouvement de stock enregistré');
+      showDialog('Succès', 'Mouvement de stock enregistré', 'success');
     } catch (error) {
       console.error('Error creating movement:', error);
-      Alert.alert('Erreur', 'Impossible de créer le mouvement');
+      showDialog('Erreur', 'Impossible de créer le mouvement', 'error');
     }
   };
 
@@ -419,6 +404,19 @@ export default function StockMovementsScreen() {
     return `${value.toFixed(2)} FBU`;
   };
 
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 1000);
+  }, []);
+
+  // Show movement details
+  const showMovementDetails = useCallback((item: MovementWithProduct) => {
+    const config = MOVEMENT_TYPE_CONFIG[item.movementType];
+    const details = `Type: ${config.label}\nQuantité: ${formatQuantity(item.quantity, item.productUnit)}\nDate: ${formatDate(item.timestamp)}${item.batchNumber ? `\nLot: ${item.batchNumber}` : ''}${item.expiryDate ? `\nExpiration: ${formatDate(item.expiryDate)}` : ''}${item.notes ? `\nNotes: ${item.notes}` : ''}${item.referenceId ? `\nRéf: ${item.referenceId}` : ''}`;
+    
+    showDialog('Détails du mouvement', details, 'info');
+  }, [showDialog]);
+
   // ==========================================================================
   // RENDER MOVEMENT ITEM
   // ==========================================================================
@@ -430,26 +428,10 @@ export default function StockMovementsScreen() {
     return (
       <TouchableOpacity
         activeOpacity={0.7}
-        onPress={() => {
-          // Show movement details
-          Alert.alert(
-            'Détails du mouvement',
-            `
-            Type: ${config.label}
-            Quantité: ${formatQuantity(item.quantity, item.productUnit)}
-            Date: ${formatDate(item.timestamp)}
-            ${item.batchNumber ? `Lot: ${item.batchNumber}` : ''}
-            ${item.expiryDate ? `Expiration: ${formatDate(item.expiryDate)}` : ''}
-            ${item.notes ? `Notes: ${item.notes}` : ''}
-            ${item.referenceId ? `Réf: ${item.referenceId}` : ''}
-            `,
-            [{ text: 'OK' }]
-          );
-        }}
+        onPress={() => showMovementDetails(item)}
       >
         <Card className="mb-3">
           <CardContent className="p-4">
-            {/* Header row */}
             <View className="flex-row justify-between items-start mb-2">
               <View className="flex-row items-center gap-2">
                 <View className={`w-10 h-10 rounded-full ${config.bgColor} items-center justify-center`}>
@@ -465,11 +447,7 @@ export default function StockMovementsScreen() {
                 </View>
               </View>
               
-              {/* Quantity badge */}
-              <View className={`
-                px-3 py-1.5 rounded-full
-                ${isPositive ? 'bg-success/10' : 'bg-error/10'}
-              `}>
+              <View className={`px-3 py-1.5 rounded-full ${isPositive ? 'bg-success/10' : 'bg-error/10'}`}>
                 <ThemedText 
                   variant={isPositive ? 'success' : 'error'} 
                   size="sm"
@@ -480,7 +458,6 @@ export default function StockMovementsScreen() {
               </View>
             </View>
 
-            {/* Additional info */}
             {(item.batchNumber || item.referenceId || item.notes) && (
               <View className="mt-2 pt-2 border-t border-border dark:border-dark-border">
                 {item.batchNumber && (
@@ -519,15 +496,6 @@ export default function StockMovementsScreen() {
   // RENDER
   // ==========================================================================
 
-  if (loading) {
-    return (
-      <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
-        <PremiumHeader title="Mouvements de stock" showBackButton />
-        <Loading />
-      </View>
-    );
-  }
-
   if (!product) {
     return (
       <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
@@ -547,11 +515,10 @@ export default function StockMovementsScreen() {
       <PremiumHeader
         title={`Mouvements - ${product.name.length > 10 ? product.name.slice(0, 10) + '...' : product.name}`}
         showBackButton
-        
       />
 
       {/* Product Summary Card */}
-      <Card className="mx-4 mt-4">
+      <Card className="mx-2 mt-4">
         <CardContent className="p-4">
           <View className="flex-row items-center gap-3">
             <View className="w-12 h-12 rounded-full bg-brand-soft dark:bg-dark-brand-soft items-center justify-center">
@@ -581,10 +548,9 @@ export default function StockMovementsScreen() {
       <ScrollView 
         horizontal 
         showsHorizontalScrollIndicator={false}
-        className="px-4 mt-4"
+        className="px-2 mt-4"
         contentContainerStyle={{ gap: 12 }}
       >
-        {/* Total In */}
         <View className="w-36 p-3 bg-success/10 rounded-xl border border-success/20">
           <Ionicons name="arrow-down-circle" size={20} color="#22c55e" />
           <ThemedText variant="success" size="lg" className="font-bold mt-2">
@@ -595,7 +561,6 @@ export default function StockMovementsScreen() {
           </ThemedText>
         </View>
 
-        {/* Total Out */}
         <View className="w-36 p-3 bg-error/10 rounded-xl border border-error/20">
           <Ionicons name="arrow-up-circle" size={20} color="#ef4444" />
           <ThemedText variant="error" size="lg" className="font-bold mt-2">
@@ -606,7 +571,6 @@ export default function StockMovementsScreen() {
           </ThemedText>
         </View>
 
-        {/* Net Change */}
         <View className={`w-36 p-3 rounded-xl border ${
           stats.netChange >= 0 
             ? 'bg-brand/10 border-brand/20' 
@@ -629,7 +593,6 @@ export default function StockMovementsScreen() {
           </ThemedText>
         </View>
 
-        {/* Stock Value */}
         <View className="w-36 p-3 bg-purple/10 rounded-xl border border-purple/20">
           <Ionicons name="cash" size={20} color="#8b5cf6" />
           <ThemedText variant="warning" size="lg" className="font-bold mt-2">
@@ -642,7 +605,7 @@ export default function StockMovementsScreen() {
       </ScrollView>
 
       {/* Filters Bar */}
-      <View className="px-4 mt-4">
+      <View className="px-2 mt-4">
         <View className="flex-row items-center gap-2">
           <View className="flex-1">
             <Input
@@ -668,7 +631,6 @@ export default function StockMovementsScreen() {
 
         {showFilters && (
           <View className="mt-3 p-3 bg-surface dark:bg-dark-surface rounded-xl border border-border dark:border-dark-border">
-            {/* Movement Type Filter */}
             <View className="mb-3">
               <ThemedText variant="muted" size="xs" className="mb-2">
                 Type de mouvement
@@ -682,10 +644,7 @@ export default function StockMovementsScreen() {
                       : 'bg-surface-muted dark:bg-dark-surface-muted border-border dark:border-dark-border'
                   }`}
                 >
-                  <ThemedText 
-                    variant={selectedType === 'all' ? 'label' : 'default'} 
-                    size="xs"
-                  >
+                  <ThemedText variant={selectedType === 'all' ? 'label' : 'default'} size="xs">
                     Tous
                   </ThemedText>
                 </TouchableOpacity>
@@ -704,10 +663,7 @@ export default function StockMovementsScreen() {
                       size={14} 
                       color={selectedType === type ? '#ffffff' : MOVEMENT_TYPE_CONFIG[type].color} 
                     />
-                    <ThemedText 
-                      variant={selectedType === type ? 'label' : 'default'} 
-                      size="xs"
-                    >
+                    <ThemedText variant={selectedType === type ? 'label' : 'default'} size="xs">
                       {MOVEMENT_TYPE_CONFIG[type].label}
                     </ThemedText>
                   </TouchableOpacity>
@@ -715,7 +671,6 @@ export default function StockMovementsScreen() {
               </ScrollView>
             </View>
 
-            {/* Time Filter */}
             <View className="mb-3">
               <ThemedText variant="muted" size="xs" className="mb-2">
                 Période
@@ -731,10 +686,7 @@ export default function StockMovementsScreen() {
                         : 'bg-surface-muted dark:bg-dark-surface-muted border-border dark:border-dark-border'
                     }`}
                   >
-                    <ThemedText 
-                      variant={timeFilter === filter.value ? 'label' : 'default'} 
-                      size="xs"
-                    >
+                    <ThemedText variant={timeFilter === filter.value ? 'label' : 'default'} size="xs">
                       {filter.label}
                     </ThemedText>
                   </TouchableOpacity>
@@ -742,7 +694,6 @@ export default function StockMovementsScreen() {
               </ScrollView>
             </View>
 
-            {/* Sort Order */}
             <View>
               <ThemedText variant="muted" size="xs" className="mb-2">
                 Trier par
@@ -758,10 +709,7 @@ export default function StockMovementsScreen() {
                         : 'bg-surface-muted dark:bg-dark-surface-muted border-border dark:border-dark-border'
                     }`}
                   >
-                    <ThemedText 
-                      variant={sortOrder === option.value ? 'label' : 'default'} 
-                      size="xs"
-                    >
+                    <ThemedText variant={sortOrder === option.value ? 'label' : 'default'} size="xs">
                       {option.label}
                     </ThemedText>
                   </TouchableOpacity>
@@ -777,9 +725,9 @@ export default function StockMovementsScreen() {
         data={filteredMovements}
         renderItem={renderMovementItem}
         keyExtractor={(item) => item.id}
-        contentContainerClassName="p-4"
+        contentContainerClassName="py-4 px-2"
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={loadData} />
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
         ListEmptyComponent={
           <EmptyState
@@ -827,7 +775,6 @@ export default function StockMovementsScreen() {
             </View>
 
             <ScrollView className="p-4">
-              {/* Movement Type Selection */}
               <View className="mb-4">
                 <ThemedText variant="default" size="sm" className="font-medium mb-2">
                   Type de mouvement
@@ -848,10 +795,7 @@ export default function StockMovementsScreen() {
                         size={18} 
                         color={newMovement.type === type ? '#ffffff' : MOVEMENT_TYPE_CONFIG[type].color} 
                       />
-                      <ThemedText 
-                        variant={newMovement.type === type ? 'label' : 'default'} 
-                        size="sm"
-                      >
+                      <ThemedText variant={newMovement.type === type ? 'label' : 'default'} size="sm">
                         {MOVEMENT_TYPE_CONFIG[type].label}
                       </ThemedText>
                     </TouchableOpacity>
@@ -859,7 +803,6 @@ export default function StockMovementsScreen() {
                 </View>
               </View>
 
-              {/* Quantity */}
               <View className="mb-4">
                 <ThemedText variant="default" size="sm" className="font-medium mb-2">
                   Quantité ({product.baseUnit})
@@ -901,7 +844,6 @@ export default function StockMovementsScreen() {
                 </View>
               </View>
 
-              {/* Batch Number (optional) */}
               <View className="mb-4">
                 <Input
                   label="Numéro de lot (optionnel)"
@@ -912,7 +854,6 @@ export default function StockMovementsScreen() {
                 />
               </View>
 
-              {/* Expiry Date (optional) */}
               <View className="mb-4">
                 <Input
                   label="Date d'expiration (optionnel)"
@@ -923,7 +864,6 @@ export default function StockMovementsScreen() {
                 />
               </View>
 
-              {/* Notes (optional) */}
               <View className="mb-6">
                 <Input
                   label="Notes (optionnel)"
@@ -936,7 +876,6 @@ export default function StockMovementsScreen() {
                 />
               </View>
 
-              {/* Action Buttons */}
               <View className="flex-row gap-3">
                 <Button
                   variant="outline"
@@ -954,7 +893,6 @@ export default function StockMovementsScreen() {
                 </Button>
               </View>
 
-              {/* Stock Warning */}
               {(newMovement.type === 'SALE' || newMovement.type === 'TRANSFER_OUT' || newMovement.type === 'ADJUSTMENT') && 
                 newMovement.quantity > (product.stockQuantity || 0) && (
                 <View className="mt-4 p-3 bg-error/10 border border-error/20 rounded-lg">
@@ -970,6 +908,74 @@ export default function StockMovementsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Custom Dialog */}
+      <CustomDialog
+        visible={dialogVisible}
+        title={dialogConfig.title}
+        description={dialogConfig.description}
+        variant={dialogConfig.variant}
+        icon={dialogConfig.icon}
+        actions={dialogConfig.actions}
+        showCancel={dialogConfig.showCancel}
+        onClose={() => setDialogVisible(false)}
+      />
     </View>
   );
+}
+
+// ============================================================================
+// ENHANCE WITH OBSERVABLES - Using the same pattern as sales.tsx
+// ============================================================================
+
+const enhance = withObservables(
+  ['productId', 'currentShop'],
+  ({ productId, currentShop }: { productId: string; currentShop: any }) => {
+    if (!currentShop) {
+      // Return empty observables when no shop
+      return {
+        product: of(null),
+        movements: of([]),
+      };
+    }
+
+    return {
+      product: database.get<Product>('products').findAndObserve(productId),
+      movements: database.get<StockMovement>('stock_movements')
+        .query(
+          Q.where('product_id', productId),
+          Q.where('shop_id', currentShop.id),
+          Q.sortBy('timestamp', Q.desc)
+        )
+        .observe(),
+    };
+  }
+);
+
+// ============================================================================
+// WRAPPER COMPONENT
+// ============================================================================
+
+export default function StockMovementsScreenWrapper() {
+  const params = useLocalSearchParams();
+  const { currentShop } = useAuth();
+  const productId = params.productId as string;
+  const router = useRouter();
+
+  if (!currentShop) {
+    return (
+      <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
+        <PremiumHeader title="Mouvements de stock" showBackButton />
+        <EmptyState
+          icon="business-outline"
+          title="Boutique non trouvée"
+          description="Veuillez sélectionner une boutique"
+          action={{ label: "Retour", onPress: () => router.back() }}
+        />
+      </View>
+    );
+  }
+
+  const EnhancedComponent = enhance(StockMovementsScreen);
+  return <EnhancedComponent productId={productId} currentShop={currentShop} />;
 }
