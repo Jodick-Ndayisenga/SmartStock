@@ -1,3 +1,4 @@
+
 // components/dashboard/StockHealthWidget.tsx
 import React from 'react';
 import { View, TouchableOpacity } from 'react-native';
@@ -129,8 +130,8 @@ const StockHealthWidgetInner = ({
       />
 
       {/* Legend with counts */}
-      <View className="flex-row justify-around mt-4">
-        <View className="items-center">
+      <View className="flex-row justify-around border border-border dark:border-dark-border p-4 mt-4 rounded-sm">
+        <View className="items-center border-r border-border dark:border-dark-border pr-4">
           <View className="flex-row items-center mb-1">
             <View className="w-3 h-3 rounded-full mr-1" style={{ backgroundColor: colors.healthy }} />
             <ThemedText variant="muted" size="xs">Healthy</ThemedText>
@@ -140,7 +141,7 @@ const StockHealthWidgetInner = ({
           </ThemedText>
         </View>
 
-        <View className="items-center">
+        <View className="items-center border-r border-border dark:border-dark-border px-4">
           <View className="flex-row items-center mb-1">
             <View className="w-3 h-3 rounded-full mr-1" style={{ backgroundColor: colors.lowStock }} />
             <ThemedText variant="muted" size="xs">Low Stock</ThemedText>
@@ -162,7 +163,7 @@ const StockHealthWidgetInner = ({
       </View>
 
       {/* Summary text */}
-      <View className="mt-4 pt-4 border-t border-border dark:border-dark-border">
+      <View className="mt-4">
         <View className="flex-row justify-between items-center">
           <View>
             <ThemedText variant="muted" size="xs">Active Products</ThemedText>

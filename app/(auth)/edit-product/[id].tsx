@@ -1215,7 +1215,7 @@ const setupProgress = useMemo(() => {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 100 }}
         >
-          <View className="p-4 gap-4">
+          <View className="py-4 px-1 gap-4">
             {/* ========== PROFITABILITY BANNER ========== */}
             <TouchableOpacity onPress={() => setShowUnitHelper(true)} activeOpacity={0.9}>
               <Card className={`
@@ -1297,6 +1297,7 @@ const setupProgress = useMemo(() => {
               </Card>
             </TouchableOpacity>
 
+
             {/* ========== IMAGE SECTION ========== */}
             <Card>
               <CardContent className="p-4">
@@ -1318,61 +1319,68 @@ const setupProgress = useMemo(() => {
                     )}
                   </View>
 
-                  <View className="flex-row gap-3">
-                    <Button
-                      variant="outline"
-                      size="sm"
+                  <View className="flex-row items-center justify-center gap-3 mt-2">
+                    <TouchableOpacity
                       onPress={handleImagePick}
                       disabled={imageUploading}
-                      icon="image-outline"
+                      className="px-4 py-2 rounded-lg flex-row items-center bg-surface-muted dark:bg-dark-surface-muted border border-border dark:border-dark-border"
+                      style={{ opacity: imageUploading ? 0.5 : 1 }}
                     >
-                      Galerie
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
+                      <Ionicons name="image-outline" size={18} color={isDark ? '#94a3b8' : '#64748b'} />
+                      <ThemedText variant="muted" size="sm" className="ml-2">Galerie</ThemedText>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
                       onPress={handleTakePhoto}
                       disabled={imageUploading}
-                      icon="camera-outline"
+                      className="px-4 py-2 rounded-lg flex-row items-center bg-surface-muted dark:bg-dark-surface-muted border border-border dark:border-dark-border"
+                      style={{ opacity: imageUploading ? 0.5 : 1 }}
                     >
-                      Photo
-                    </Button>
+                      <Ionicons name="camera-outline" size={18} color={isDark ? '#94a3b8' : '#64748b'} />
+                      <ThemedText variant="muted" size="sm" className="ml-2">Photo</ThemedText>
+                    </TouchableOpacity>
+
                     {formData.imageUrl && (
                       <TouchableOpacity
                         onPress={() => {
                           updateField('imageUrl', '');
                           updateField('imageThumbnailUrl', '');
                         }}
-                        className="flex items-center justify-center"
+                        className="px-4 py-2 rounded-lg flex-row items-center bg-error/10 border border-error/30"
                       >
-                        <Ionicons name="trash-outline" size={24} color="#f77373" />
+                        <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                        <ThemedText variant="error" size="sm" className="ml-2">Supprimer</ThemedText>
                       </TouchableOpacity>
                     )}
                   </View>
                 </View>
               </CardContent>
             </Card>
-
+            
             {/* ========== QUICK ACTIONS BAR ========== */}
             <View className="flex-row gap-2">
-              <Button
-                variant="outline"
-                size="sm"
+              <TouchableOpacity
                 onPress={() => setShowAdvanced(!showAdvanced)}
-                icon={showAdvanced ? "chevron-up-outline" : "chevron-down-outline"}
-                className="flex-1"
+                className="flex-1 px-4 py-2 rounded-sm flex-row items-center justify-center bg-surface-muted dark:bg-dark-surface-muted border border-border dark:border-dark-border"
               >
-                {showAdvanced ? "Masquer avancé" : "Voir options avancées"}
-              </Button>
+                <Ionicons 
+                  name={showAdvanced ? "chevron-up-outline" : "chevron-down-outline"} 
+                  size={18} 
+                  color={isDark ? '#94a3b8' : '#64748b'} 
+                />
+                <ThemedText variant="muted" size="sm" className="ml-2">
+                  {showAdvanced ? "Masquer avancé" : "Voir options avancées"}
+                </ThemedText>
+              </TouchableOpacity>
+              
               {!isNewProduct && (
-                <Button
-                  variant="outline"
-                  size="sm"
+                <TouchableOpacity
                   onPress={() => router.push(`/stock-movements/${productId}`)}
-                  icon="swap-horizontal-outline"
+                  className="px-4 py-2 rounded-sm flex-row items-center justify-center bg-surface-muted dark:bg-dark-surface-muted border border-border dark:border-dark-border"
                 >
-                  Mouvements
-                </Button>
+                  <Ionicons name="swap-horizontal-outline" size={18} color={isDark ? '#94a3b8' : '#64748b'} />
+                  <ThemedText variant="muted" size="sm" className="ml-2">Mouvements</ThemedText>
+                </TouchableOpacity>
               )}
             </View>
 

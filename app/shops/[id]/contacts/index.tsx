@@ -1,62 +1,52 @@
 // app/shops/[id]/contacts/index.tsx
+import React, { useState, useCallback } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { Alert, FlatList, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert, FlatList, TouchableOpacity, View, RefreshControl } from 'react-native';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Button } from '@/components/ui/Button';
 import { Contact } from '@/database/models/Contact';
-import { getContactsByShop } from '@/services/contactService';
 import { useAuth } from '@/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import PremiumHeader from '@/components/layout/PremiumHeader';
+import { withObservables } from '@nozbe/watermelondb/react';
+import { Q } from '@nozbe/watermelondb';
+import database from '@/database';
+import { Loading } from '@/components/ui/Loading';
+import { EmptyState } from '@/components/ui/EmptyState';
 
-export default function ContactListScreen() {
-  const { id: shopId } = useLocalSearchParams<{ id: string }>();
+interface ContactListScreenProps {
+  contacts: Contact[];
+  shopId: string;  // This will come from the wrapper component, not from observables
+  selectFor?: string;
+}
+
+function ContactListScreen({ contacts, shopId, selectFor }: ContactListScreenProps) {
   const router = useRouter();
   const { tempSelectedContact, setTempSelectedContact } = useAuth();
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [loading, setLoading] = useState(true);
-  //console.log('shopId:', shopId);
+  const [refreshing, setRefreshing] = useState(false);
 
-  
-
-  const selectFor = useLocalSearchParams().selectFor as string | undefined;
-
- 
-
-
-  useEffect(() => {
-    loadContacts();
-  }, [shopId]);
-
-  const loadContacts = async () => {
-    try {
-        
-      const contactRecords = await getContactsByShop(shopId);
-      setContacts(contactRecords);
-    } catch (error) {
-      console.error('Failed to load contacts:', error);
-      Alert.alert('Error', 'Could not load contacts');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSelect = (contact: Contact) => {
+  const handleSelect = useCallback((contact: Contact) => {
     if (selectFor) {
       setTempSelectedContact(contact.id);
       router.back();
     } else {
-      // Optional: navigate to detail later
-      // router.push(`/shops/${shopId}/contacts/${contact.id}`);
+      // Navigate to contact details/edit page
+      router.push(`/shops/${shopId}/contacts/${contact.id}`);
     }
-  };
+  }, [selectFor, setTempSelectedContact, router, shopId]);
 
-  const renderContact = ({ item }: { item: Contact }) => {
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    // The contacts will automatically update due to observable
+    // We just need to simulate refresh for UX
+    setTimeout(() => setRefreshing(false), 1000);
+  }, []);
+
+  const renderContact = useCallback(({ item }: { item: Contact }) => {
     const isCustomer = item.role === 'customer' || item.role === 'client';
-    const icon = isCustomer ? 'person' : 'business';
-    const color = isCustomer ? '#3b82f6' : '#10b981'; // blue for customer, green for supplier
+    const isSupplier = item.role === 'supplier';
+    const icon = isCustomer ? 'person' : isSupplier ? 'business' : 'people';
+    const color = isCustomer ? '#3b82f6' : isSupplier ? '#10b981' : '#8b5cf6';
 
     return (
       <TouchableOpacity
@@ -78,30 +68,35 @@ export default function ContactListScreen() {
             <ThemedText variant="default" size="lg" className="font-medium">
               {item.name}
             </ThemedText>
+            {item.phone && (
+              <View className="flex-row items-center mt-1">
+                <Ionicons name="call-outline" size={14} color="#64748b" />
+                <ThemedText variant="muted" size="sm" className="ml-1">
+                  {item.phone}
+                </ThemedText>
+              </View>
+            )}
+            {item.email && (
+              <View className="flex-row items-center mt-1">
+                <Ionicons name="mail-outline" size={14} color="#64748b" />
+                <ThemedText variant="muted" size="sm" className="ml-1">
+                  {item.email}
+                </ThemedText>
+              </View>
+            )}
             <View className="flex-row items-center mt-1">
               <Ionicons 
-                name={isCustomer ? 'call-outline' : 'call'} 
-                size={14} 
-                color="#64748b" 
-                className="mr-1"
-              />
-              <ThemedText variant="muted" size="sm">
-                {item.phone}
-              </ThemedText>
-            </View>
-            <View className="flex-row items-center mt-1">
-              <Ionicons 
-                name={isCustomer ? 'person-circle' : 'business'} 
+                name={isCustomer ? 'person-circle' : isSupplier ? 'business' : 'people-circle'} 
                 size={14} 
                 color={color} 
-                className="mr-1"
               />
               <ThemedText 
                 variant="muted" 
                 size="sm"
+                className="ml-1"
                 style={{ color }}
               >
-                {isCustomer ? 'Customer' : 'Supplier'}
+                {isCustomer ? 'Customer' : isSupplier ? 'Supplier' : 'Client'}
               </ThemedText>
             </View>
           </View>
@@ -115,9 +110,10 @@ export default function ContactListScreen() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [handleSelect, selectFor, tempSelectedContact]);
 
-  if (loading) {
+  // Loading state
+  if (!contacts) {
     return (
       <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
         <PremiumHeader 
@@ -125,9 +121,7 @@ export default function ContactListScreen() {
           showBackButton 
           subtitle={selectFor ? 'Tap a contact to select' : 'Your customers & suppliers'}
         />
-        <View className="flex-1 items-center justify-center p-6">
-          <ThemedText variant="muted">Loading your contacts...</ThemedText>
-        </View>
+        <Loading />
       </View>
     );
   }
@@ -141,36 +135,21 @@ export default function ContactListScreen() {
           ? 'Tap a contact to select' 
           : 'Manage your customers and suppliers'
         }
-        action={
-          !selectFor && (
-            <Button
-              variant="secondary"
-              size="sm"
-              icon="add"
-              onPress={() => router.push(`/shops/${shopId}/contacts/add?from=sale`) }
-            >
-              New
-            </Button>
-          )
-        }
       />
 
       <View className="flex-1 py-4 px-2">
         {contacts.length === 0 ? (
-          <View className="flex-1 items-center justify-center p-6">
-            <View className="w-16 h-16 rounded-full bg-surface-muted dark:bg-dark-surface-muted items-center justify-center mb-4">
-              <Ionicons name="people-outline" size={32} color="#94a3b8" />
-            </View>
-            <ThemedText variant="heading" size="lg" className="text-center mb-2">
-              No Contacts Yet
-            </ThemedText>
-            <ThemedText variant="muted" size="sm" className="text-center mb-6">
-              {selectFor 
-                ? 'You’ll need to add contacts first to select one.' 
-                : 'Add your first customer or supplier to get started!'}
-            </ThemedText>
-            
-          </View>
+          <EmptyState
+            icon="people-outline"
+            title="No Contacts Yet"
+            description={selectFor 
+              ? 'You\'ll need to add contacts first to select one.' 
+              : 'Add your first customer or supplier to get started!'}
+            action={!selectFor ? {
+              label: 'Add Contact',
+              onPress: () => router.push(`/shops/${shopId}/contacts/add`)
+            } : undefined}
+          />
         ) : (
           <FlatList
             data={contacts}
@@ -178,16 +157,83 @@ export default function ContactListScreen() {
             renderItem={renderContact}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 20 }}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                colors={['#3b82f6']}
+                tintColor="#3b82f6"
+              />
+            }
           />
         )}
-        <Button
+        
+        {!selectFor && (
+          <Button
             icon="add"
-            onPress={() => router.push(`/shops/${shopId}/contacts/add?from=sale`) }
-            >
-            Add Contacts
-            </Button>
+            onPress={() => router.push(`/shops/${shopId}/contacts/add`)}
+            className="mt-4"
+          >
+            Add Contact
+          </Button>
+        )}
       </View>
-
     </View>
   );
+}
+
+// Create the enhanced component with observables
+const EnhancedContactList = withObservables(
+  ['shopId', 'selectFor'],
+  ({ shopId, selectFor }: { shopId: string; selectFor?: string }) => {
+    // Build the query based on whether we're selecting for sale
+    if (selectFor === 'sale') {
+      // If selecting for sale, only show customers and clients
+      return {
+        contacts: database.get<Contact>('contacts').query(
+          Q.where('shop_id', shopId),
+          Q.or(
+            Q.where('role', 'customer'),
+            Q.where('role', 'client'),
+            Q.where('role', 'both')
+          )
+        ).observe(),
+      };
+    } else {
+      // Otherwise show all active contacts (customers, suppliers, clients)
+      return {
+        contacts: database.get<Contact>('contacts').query(
+          Q.where('shop_id', shopId)
+        ).observe(),
+      };
+    }
+  }
+)(ContactListScreen);
+
+// Wrapper component that provides the shopId and selectFor props
+export default function ContactListScreenWrapper() {
+  const { id: shopId } = useLocalSearchParams<{ id: string }>();
+  const { selectFor } = useLocalSearchParams<{ selectFor?: string }>();
+  const router = useRouter();
+  
+  // Check if shop exists and handle empty state
+  if (!shopId) {
+    return (
+      <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
+        <PremiumHeader title="Contacts" showBackButton />
+        <EmptyState
+          icon="business-outline"
+          title="No Shop Found"
+          description="Please select a shop first"
+          action={{
+            label: "Go Back",
+            onPress: () => router.back(),
+          }}
+        />
+      </View>
+    );
+  }
+
+  // Pass shopId and selectFor as props to the enhanced component
+  return <EnhancedContactList shopId={shopId} selectFor={selectFor} />;
 }

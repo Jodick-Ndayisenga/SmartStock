@@ -2,19 +2,23 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View,
+  Text,
   TouchableOpacity,
-  Alert,
   FlatList,
   RefreshControl,
   ActivityIndicator,
+  ScrollView,
+  Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
 import { Q } from '@nozbe/watermelondb';
 import { useAuth } from '@/context/AuthContext';
 import { BURUNDI_TEMPLATES } from '@/constants/templates';
 import { useColorScheme } from 'nativewind';
+import { LinearGradient } from 'expo-linear-gradient';
+import { MotiView } from 'moti';
+import * as Haptics from 'expo-haptics';
 
 // Database
 import database from '@/database';
@@ -22,15 +26,15 @@ import { Product } from '@/database/models/Product';
 
 // Components
 import PremiumHeader from '@/components/layout/PremiumHeader';
-import { Button } from '@/components/ui/Button';
-import { Card, CardContent } from '@/components/ui/Card';
-import { ThemedText } from '@/components/ui/ThemedText';
-import { Badge } from '@/components/ui/Badge';
 import { Loading } from '@/components/ui/Loading';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Input } from '@/components/ui/Input';
+import CustomDialog from '@/components/ui/CustomDialog';
 
+// ─────────────────────────────────────────────
 // Types
+// ─────────────────────────────────────────────
+
 type ProductWithTemplateInfo = {
   id: string;
   name: string;
@@ -52,37 +56,335 @@ type ProductWithTemplateInfo = {
 type FilterType = 'all' | 'active' | 'inactive' | 'customized' | 'withTemplate' | 'withoutTemplate';
 type SortType = 'name' | 'created' | 'status' | 'price';
 
-// Constants
 const BATCH_SIZE = 30;
+
+// ─────────────────────────────────────────────
+// Sub-components
+// ─────────────────────────────────────────────
+
+const StatPill = ({
+  value,
+  label,
+  color,
+  isDark,
+}: {
+  value: number;
+  label: string;
+  color: [string, string];
+  isDark: boolean;
+}) => (
+  <View className="flex-1 rounded-2xl overflow-hidden" style={{ minWidth: 72 }}>
+    <LinearGradient
+      colors={isDark
+        ? [`${color[0]}18`, `${color[1]}0a`]
+        : [`${color[0]}12`, `${color[1]}06`]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      className="px-3 py-2.5 items-center border border-border dark:border-dark-border rounded-2xl"
+    >
+      <Text style={{ color: color[0] }} className="text-xl font-bold">
+        {value}
+      </Text>
+      <Text className="text-text-muted dark:text-dark-text-muted text-xs mt-0.5 text-center">
+        {label}
+      </Text>
+    </LinearGradient>
+  </View>
+);
+
+const FilterChip = ({
+  label,
+  icon,
+  selected,
+  onPress,
+  isDark,
+}: {
+  label: string;
+  icon: string;
+  selected: boolean;
+  onPress: () => void;
+  isDark: boolean;
+}) => (
+  <TouchableOpacity onPress={onPress} activeOpacity={0.75}>
+    {selected ? (
+      <LinearGradient
+        colors={isDark ? ['#38bdf8', '#818cf8'] : ['#0ea5e9', '#6366f1']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={{ borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7, flexDirection: 'row', alignItems: 'center' }}
+      >
+        <Ionicons name={icon as any} size={13} color="white" style={{ marginRight: 4 }} />
+        <Text className="text-white font-semibold text-xs">{label}</Text>
+      </LinearGradient>
+    ) : (
+      <View className="flex-row items-center px-3 py-1.5 rounded-full bg-surface-muted dark:bg-dark-surface-muted border border-border dark:border-dark-border">
+        <Ionicons name={icon as any} size={13} color={isDark ? '#64748b' : '#94a3b8'} style={{ marginRight: 4 }} />
+        <Text className="text-text-muted dark:text-dark-text-muted text-xs">{label}</Text>
+      </View>
+    )}
+  </TouchableOpacity>
+);
+
+const SortTab = ({
+  label,
+  selected,
+  onPress,
+  isDark,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+  isDark: boolean;
+}) => (
+  <TouchableOpacity
+    onPress={onPress}
+    activeOpacity={0.75}
+    className={`px-3 py-1 rounded-lg ${selected
+      ? 'bg-brand-soft dark:bg-dark-brand-soft'
+      : ''
+    }`}
+  >
+    <Text
+      className={`text-xs font-medium ${selected
+        ? 'text-brand dark:text-dark-brand'
+        : 'text-text-muted dark:text-dark-text-muted'
+      }`}
+    >
+      {label}
+    </Text>
+  </TouchableOpacity>
+);
+
+// Status badge — no external Badge component needed
+const StatusDot = ({ active }: { active: boolean }) => (
+  <View className={`w-1.5 h-1.5 rounded-full mr-1.5 ${active ? 'bg-success dark:bg-dark-success' : 'bg-error dark:bg-dark-error'}`} />
+);
+
+const Tag = ({
+  label,
+  variant = 'default',
+  isDark,
+}: {
+  label: string;
+  variant?: 'success' | 'warning' | 'error' | 'brand' | 'default';
+  isDark: boolean;
+}) => {
+  const styles: Record<string, { bg: string; text: string }> = {
+    success: { bg: isDark ? 'bg-dark-success-soft' : 'bg-success-soft', text: isDark ? 'text-dark-success' : 'text-success' },
+    warning: { bg: isDark ? 'bg-dark-warning-soft' : 'bg-warning-soft', text: isDark ? 'text-dark-warning' : 'text-warning' },
+    error:   { bg: isDark ? 'bg-dark-error-soft'   : 'bg-error-soft',   text: isDark ? 'text-dark-error'   : 'text-error'   },
+    brand:   { bg: isDark ? 'bg-dark-brand-soft'   : 'bg-brand-soft',   text: isDark ? 'text-dark-brand'   : 'text-brand'   },
+    default: { bg: isDark ? 'bg-dark-surface-muted': 'bg-surface-muted', text: isDark ? 'text-dark-text-muted' : 'text-text-muted' },
+  };
+  const s = styles[variant];
+  return (
+    <View className={`px-2 py-0.5 rounded-md ${s.bg}`}>
+      <Text className={`text-xs font-medium ${s.text}`}>{label}</Text>
+    </View>
+  );
+};
+
+// ─────────────────────────────────────────────
+// Product Card
+// ─────────────────────────────────────────────
+
+const ProductCard = React.memo(({
+  item,
+  isSelectMode,
+  isSelected,
+  onPress,
+  onLongPress,
+  onEdit,
+  isDark,
+}: {
+  item: ProductWithTemplateInfo;
+  isSelectMode: boolean;
+  isSelected: boolean;
+  onPress: () => void;
+  onLongPress: () => void;
+  onEdit: () => void;
+  isDark: boolean;
+}) => {
+  const iconBg = item.templateColor ? `${item.templateColor}1a` : (isDark ? '#1e293b' : '#f1f5f9');
+  const iconColor = item.templateColor || (isDark ? '#64748b' : '#94a3b8');
+
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={400}
+      activeOpacity={0.75}
+    >
+      <MotiView
+        animate={{ scale: isSelected ? 0.985 : 1 }}
+        transition={{ type: 'spring', damping: 20 }}
+      >
+        <View
+          className="mb-3 rounded-2xl overflow-hidden"
+          style={{
+            borderWidth: isSelected ? 2 : 1,
+            borderColor: isSelected
+              ? (isDark ? '#38bdf8' : '#0ea5e9')
+              : (isDark ? '#475569' : '#e2e8f0'),
+            backgroundColor: isDark ? '#1e293b' : '#ffffff',
+            shadowColor: isSelected ? '#0ea5e9' : '#000',
+            shadowOpacity: isSelected ? 0.18 : 0.05,
+            shadowOffset: { width: 0, height: isSelected ? 4 : 2 },
+            shadowRadius: isSelected ? 12 : 4,
+            elevation: isSelected ? 4 : 1,
+          }}
+        >
+          <View className="p-4">
+            <View className="flex-row items-start">
+
+              {/* Icon */}
+              <View
+                style={{ backgroundColor: iconBg, borderRadius: 12, width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}
+              >
+                <Ionicons
+                  name={(item.templateIcon as any) || 'cube-outline'}
+                  size={22}
+                  color={iconColor}
+                />
+              </View>
+
+              {/* Content */}
+              <View className="flex-1">
+                {/* Name row */}
+                <View className="flex-row items-center justify-between mb-1">
+                  <Text
+                    className="text-text dark:text-dark-text font-semibold text-base flex-1"
+                    numberOfLines={1}
+                  >
+                    {item.name}
+                  </Text>
+
+                  {/* Select circle OR edit button */}
+                  {isSelectMode ? (
+                    <View
+                      style={{
+                        width: 22, height: 22, borderRadius: 11,
+                        borderWidth: 2,
+                        borderColor: isSelected ? (isDark ? '#38bdf8' : '#0ea5e9') : (isDark ? '#475569' : '#cbd5e1'),
+                        backgroundColor: isSelected ? (isDark ? '#38bdf8' : '#0ea5e9') : 'transparent',
+                        alignItems: 'center', justifyContent: 'center', marginLeft: 8,
+                      }}
+                    >
+                      {isSelected && <Ionicons name="checkmark" size={13} color="white" />}
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      onPress={onEdit}
+                      activeOpacity={0.7}
+                      className="ml-2 p-1.5 rounded-lg bg-surface-muted dark:bg-dark-surface-muted"
+                    >
+                      <Ionicons
+                        name="pencil-outline"
+                        size={15}
+                        color={isDark ? '#94a3b8' : '#64748b'}
+                      />
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* Meta row */}
+                <View className="flex-row items-center mb-2">
+                  <StatusDot active={item.isActive} />
+                  <Text className={`text-xs mr-3 ${item.isActive ? 'text-success dark:text-dark-success' : 'text-error dark:text-dark-error'}`}>
+                    {item.isActive ? 'Active' : 'Inactive'}
+                  </Text>
+                  {item.hasTemplate && (
+                    <Text className="text-text-muted dark:text-dark-text-muted text-xs" numberOfLines={1}>
+                      {item.templateName}
+                    </Text>
+                  )}
+                  {!item.hasTemplate && (
+                    <Text className="text-text-muted dark:text-dark-text-muted text-xs">Custom</Text>
+                  )}
+                  <Text className="text-text-muted dark:text-dark-text-muted text-xs ml-auto">
+                    {item.createdAt.toLocaleDateString('fr-FR')}
+                  </Text>
+                </View>
+
+                {/* Price row */}
+                {(item.sellingPrice > 0 || item.costPrice > 0) && (
+                  <View className="flex-row items-center mb-2">
+                    {item.sellingPrice > 0 && (
+                      <Text className="text-brand dark:text-dark-brand font-semibold text-sm mr-3">
+                        {item.sellingPrice.toLocaleString()} FBU
+                      </Text>
+                    )}
+                    {item.costPrice > 0 && (
+                      <Text className="text-text-muted dark:text-dark-text-muted text-xs">
+                        Cost: {item.costPrice.toLocaleString()}
+                      </Text>
+                    )}
+                  </View>
+                )}
+
+                {/* Tags */}
+                <View className="flex-row flex-wrap gap-1.5">
+                  {item.isCustomized && (
+                    <Tag label="Customized" variant="brand" isDark={isDark} />
+                  )}
+                  {item.stockQuantity > 0 && (
+                    <Tag label={`Stock: ${item.stockQuantity}`} variant="warning" isDark={isDark} />
+                  )}
+                  {item.hasTemplate && (
+                    <Tag label="Template" variant="default" isDark={isDark} />
+                  )}
+                </View>
+              </View>
+            </View>
+          </View>
+        </View>
+      </MotiView>
+    </TouchableOpacity>
+  );
+});
+
+// ─────────────────────────────────────────────
+// Main Screen
+// ─────────────────────────────────────────────
 
 export default function TemplatesProductsScreen() {
   const router = useRouter();
-  const { t } = useTranslation();
   const { currentShop } = useAuth();
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
 
-  // Refs
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // States
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [products, setProducts] = useState<ProductWithTemplateInfo[]>([]);
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [filter, setFilter] = useState<FilterType>('all');
   const [sortBy, setSortBy] = useState<SortType>('created');
-  const [batchAction, setBatchAction] = useState<'activate' | 'deactivate' | 'delete' | null>(null);
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
 
-  // Build template lookup map for efficient matching (optional enrichment)
+  // Dialog states (replacing Alert)
+  const [showBatchDialog, setShowBatchDialog] = useState(false);
+  const [batchAction, setBatchAction] = useState<'activate' | 'deactivate' | 'delete' | null>(null);
+  const [showErrorDialog, setShowErrorDialog] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  // Footer slide-up animation
+  const footerAnim = useRef(new Animated.Value(80)).current;
+  useEffect(() => {
+    Animated.spring(footerAnim, {
+      toValue: isSelectMode && selectedProducts.size > 0 ? 0 : 80,
+      damping: 18, mass: 1, stiffness: 130, useNativeDriver: true,
+    }).start();
+  }, [isSelectMode, selectedProducts.size]);
+
+  // Template lookup
   const templateLookup = useMemo(() => {
     const lookup = new Map();
     BURUNDI_TEMPLATES.forEach(template => {
@@ -98,9 +400,7 @@ export default function TemplatesProductsScreen() {
     return lookup;
   }, []);
 
-  // Check if product has been customized (has non-default values)
   const checkIfCustomized = useCallback((product: Product): boolean => {
-    // Consider a product customized if it has any non-zero prices or stock
     if (product.costPricePerBase > 0) return true;
     if (product.sellingPricePerBase > 0) return true;
     if (product.stockQuantity && product.stockQuantity > 0) return true;
@@ -108,16 +408,12 @@ export default function TemplatesProductsScreen() {
     if (product.category && product.category !== 'other') return true;
     if (product.description && product.description.trim().length > 0) return true;
     if (product.imageUrl && product.imageUrl.trim().length > 0) return true;
-    
     return false;
   }, []);
 
-  // Process batch of products (always show ALL products, optionally enrich with template data)
-  const processProductsBatch = useCallback(async (productsBatch: Product[]): Promise<ProductWithTemplateInfo[]> => {
-    return productsBatch.map(product => {
-      // Check if this product matches any template (optional enrichment)
+  const processProductsBatch = useCallback(async (batch: Product[]): Promise<ProductWithTemplateInfo[]> => {
+    return batch.map(product => {
       const templateInfo = templateLookup.get(product.name.toLowerCase());
-      
       return {
         id: product.id,
         name: product.name,
@@ -129,503 +425,252 @@ export default function TemplatesProductsScreen() {
         costPrice: product.costPricePerBase || 0,
         stockQuantity: product.stockQuantity || 0,
         createdAt: new Date(product.createdAt || Date.now()),
-        product: product,
-        // Add template info if available (for display purposes)
-        ...(templateInfo && {
-          templateId: templateInfo.templateId,
-          templateName: templateInfo.templateName,
-          templateIcon: templateInfo.templateIcon,
-          templateColor: templateInfo.templateColor,
-        }),
+        product,
+        ...(templateInfo || {}),
       };
     });
   }, [templateLookup, checkIfCustomized]);
 
-  // Get total count for pagination
   const getTotalCount = useCallback(async () => {
     if (!currentShop) return 0;
-    
     try {
       const count = await database.get<Product>('products')
-        .query(
-          Q.where('shop_id', currentShop.id)
-        )
+        .query(Q.where('shop_id', currentShop.id))
         .fetchCount();
-      
       setTotalCount(count);
       setHasMore(count > BATCH_SIZE);
       return count;
-    } catch (error) {
-      console.error('Error getting total count:', error);
-      return 0;
-    }
+    } catch { return 0; }
   }, [currentShop]);
 
-  // Load initial batch
   const loadInitialBatch = useCallback(async () => {
     if (!currentShop) return;
-
-    // Cancel any ongoing requests
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    
+    if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
-
     try {
       setLoading(true);
       setPage(1);
-      
       await getTotalCount();
-      
       const batch = await database.get<Product>('products')
-        .query(
-          Q.where('shop_id', currentShop.id),
-          Q.take(BATCH_SIZE)
-        )
+        .query(Q.where('shop_id', currentShop.id), Q.take(BATCH_SIZE))
         .fetch();
-
-      const processedBatch = await processProductsBatch(batch);
-      setProducts(processedBatch);
+      const processed = await processProductsBatch(batch);
+      setProducts(processed);
       setHasMore(batch.length === BATCH_SIZE && totalCount > BATCH_SIZE);
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        return;
+      if (error instanceof Error && error.name !== 'AbortError') {
+        setErrorMessage('Failed to load products');
+        setShowErrorDialog(true);
       }
-      console.error('Error loading initial batch:', error);
-      Alert.alert('Error', 'Failed to load products');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, [currentShop, getTotalCount, processProductsBatch, totalCount]);
 
-  // Load more products (pagination)
   const loadMoreProducts = useCallback(async () => {
     if (!currentShop || !hasMore || loadingMore || loading || products.length >= totalCount) return;
-
     try {
       setLoadingMore(true);
-      
       const nextPage = page + 1;
       const batch = await database.get<Product>('products')
-        .query(
-          Q.where('shop_id', currentShop.id),
-          Q.skip((nextPage - 1) * BATCH_SIZE),
-          Q.take(BATCH_SIZE)
-        )
+        .query(Q.where('shop_id', currentShop.id), Q.skip((nextPage - 1) * BATCH_SIZE), Q.take(BATCH_SIZE))
         .fetch();
-
-      if (batch.length === 0) {
-        setHasMore(false);
-        return;
-      }
-
-      const processedBatch = await processProductsBatch(batch);
-      
-      setProducts(prev => [...prev, ...processedBatch]);
+      if (batch.length === 0) { setHasMore(false); return; }
+      const processed = await processProductsBatch(batch);
+      setProducts(prev => [...prev, ...processed]);
       setPage(nextPage);
       setHasMore(batch.length === BATCH_SIZE && products.length + batch.length < totalCount);
-    } catch (error) {
-      console.error('Error loading more products:', error);
-    } finally {
-      setLoadingMore(false);
-    }
+    } catch { /* silent */ }
+    finally { setLoadingMore(false); }
   }, [currentShop, page, hasMore, loadingMore, loading, products.length, totalCount, processProductsBatch]);
 
-  // Search products
   const searchProducts = useCallback(async (query: string) => {
     if (!currentShop) return;
-
     try {
       setLoading(true);
-      
-      const searchResults = await database.get<Product>('products')
-        .query(
-          Q.where('shop_id', currentShop.id),
-          Q.where('name', Q.like(`%${query}%`))
-        )
+      const results = await database.get<Product>('products')
+        .query(Q.where('shop_id', currentShop.id), Q.where('name', Q.like(`%${query}%`)))
         .fetch();
-
-      const processedResults = await processProductsBatch(searchResults);
-      setProducts(processedResults);
-      setHasMore(false); // Disable pagination during search
-    } catch (error) {
-      console.error('Error searching products:', error);
-    } finally {
-      setLoading(false);
-    }
+      setProducts(await processProductsBatch(results));
+      setHasMore(false);
+    } catch { /* silent */ }
+    finally { setLoading(false); }
   }, [currentShop, processProductsBatch]);
 
+  // Debounced search
   useEffect(() => {
-  let timeoutId: NodeJS.Timeout | null = null;
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => {
+      if (searchQuery.trim().length > 0) {
+        searchProducts(searchQuery.trim());
+      } else {
+        loadInitialBatch();
+      }
+    }, 400);
+    return () => { if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current); };
+  }, [searchQuery]);
 
-  if (timeoutId) {
-    clearTimeout(timeoutId);
-  }
-
-  timeoutId = setTimeout(() => {
-    // Your code here
-  }, 500);
-
-  searchTimeoutRef.current = timeoutId;
-
-  return () => {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
-  };
-}, [searchQuery, debouncedSearch, searchProducts, loadInitialBatch]);
-
-  // Initial load
   useEffect(() => {
     loadInitialBatch();
-    
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
-  }, [loadInitialBatch]);
+    return () => { if (abortControllerRef.current) abortControllerRef.current.abort(); };
+  }, []);
 
-  // Pull to refresh
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     loadInitialBatch();
   }, [loadInitialBatch]);
 
-  // Filter and sort products
+  // Filter + sort
   const filteredProducts = useMemo(() => {
-    let filtered = [...products];
-
-    // Apply status filter
-    if (filter !== 'all') {
-      switch (filter) {
-        case 'active':
-          filtered = filtered.filter(p => p.isActive);
-          break;
-        case 'inactive':
-          filtered = filtered.filter(p => !p.isActive);
-          break;
-        case 'customized':
-          filtered = filtered.filter(p => p.isCustomized);
-          break;
-        case 'withTemplate':
-          filtered = filtered.filter(p => p.hasTemplate);
-          break;
-        case 'withoutTemplate':
-          filtered = filtered.filter(p => !p.hasTemplate);
-          break;
-      }
+    let list = [...products];
+    switch (filter) {
+      case 'active': list = list.filter(p => p.isActive); break;
+      case 'inactive': list = list.filter(p => !p.isActive); break;
+      case 'customized': list = list.filter(p => p.isCustomized); break;
+      case 'withTemplate': list = list.filter(p => p.hasTemplate); break;
+      case 'withoutTemplate': list = list.filter(p => !p.hasTemplate); break;
     }
-
-    // Apply sorting
     switch (sortBy) {
-      case 'name':
-        filtered.sort((a, b) => a.name.localeCompare(b.name));
-        break;
-      case 'created':
-        filtered.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-        break;
-      case 'status':
-        filtered.sort((a, b) => {
-          if (a.isActive === b.isActive) return 0;
-          return a.isActive ? -1 : 1;
-        });
-        break;
-      case 'price':
-        filtered.sort((a, b) => b.sellingPrice - a.sellingPrice);
-        break;
+      case 'name': list.sort((a, b) => a.name.localeCompare(b.name)); break;
+      case 'created': list.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()); break;
+      case 'status': list.sort((a, b) => (a.isActive === b.isActive ? 0 : a.isActive ? -1 : 1)); break;
+      case 'price': list.sort((a, b) => b.sellingPrice - a.sellingPrice); break;
     }
-
-    return filtered;
+    return list;
   }, [products, filter, sortBy]);
 
-  // Quick stats
-  const stats = useMemo(() => {
-    const total = products.length;
-    const active = products.filter(p => p.isActive).length;
-    const customized = products.filter(p => p.isCustomized).length;
-    const withTemplate = products.filter(p => p.hasTemplate).length;
+  const stats = useMemo(() => ({
+    total: products.length,
+    active: products.filter(p => p.isActive).length,
+    customized: products.filter(p => p.isCustomized).length,
+    withTemplate: products.filter(p => p.hasTemplate).length,
+  }), [products]);
 
-    return { total, active, customized, withTemplate };
-  }, [products]);
-
-  // Handle product selection
-  const toggleProductSelection = useCallback((productId: string) => {
+  // Selection
+  const toggleProductSelection = useCallback((id: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSelectedProducts(prev => {
-      const newSelected = new Set(prev);
-      if (newSelected.has(productId)) {
-        newSelected.delete(productId);
-      } else {
-        newSelected.add(productId);
-      }
-      return newSelected;
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
     });
   }, []);
 
   const selectAllProducts = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (selectedProducts.size === filteredProducts.length) {
       setSelectedProducts(new Set());
     } else {
-      const allIds = new Set(filteredProducts.map(p => p.id));
-      setSelectedProducts(allIds);
+      setSelectedProducts(new Set(filteredProducts.map(p => p.id)));
     }
   }, [filteredProducts, selectedProducts.size]);
 
-  // Batch actions
+  const exitSelectMode = useCallback(() => {
+    setIsSelectMode(false);
+    setSelectedProducts(new Set());
+  }, []);
+
+  // Batch ops
   const handleBatchActivate = useCallback(async () => {
     try {
       await database.write(async () => {
-        const updates = Array.from(selectedProducts).map(async (productId) => {
-          const product = products.find(p => p.id === productId)?.product;
-          if (product) {
-            await product.update(record => {
-              record.isActive = true;
-            });
-          }
-        });
-        await Promise.all(updates);
+        await Promise.all(
+          Array.from(selectedProducts).map(async id => {
+            const p = products.find(p => p.id === id)?.product;
+            if (p) await p.update(r => { r.isActive = true; });
+          })
+        );
       });
-
-      Alert.alert('Success', `${selectedProducts.size} products activated`);
-      setSelectedProducts(new Set());
-      setIsSelectMode(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      exitSelectMode();
       loadInitialBatch();
-    } catch (error) {
-      console.error('Error activating products:', error);
-      Alert.alert('Error', 'Failed to activate products');
+    } catch {
+      setErrorMessage('Failed to activate products');
+      setShowErrorDialog(true);
     }
-  }, [selectedProducts, products, loadInitialBatch]);
+  }, [selectedProducts, products, exitSelectMode, loadInitialBatch]);
 
   const handleBatchDeactivate = useCallback(async () => {
     try {
       await database.write(async () => {
-        const updates = Array.from(selectedProducts).map(async (productId) => {
-          const product = products.find(p => p.id === productId)?.product;
-          if (product) {
-            await product.update(record => {
-              record.isActive = false;
-            });
-          }
-        });
-        await Promise.all(updates);
+        await Promise.all(
+          Array.from(selectedProducts).map(async id => {
+            const p = products.find(p => p.id === id)?.product;
+            if (p) await p.update(r => { r.isActive = false; });
+          })
+        );
       });
-
-      Alert.alert('Success', `${selectedProducts.size} products deactivated`);
-      setSelectedProducts(new Set());
-      setIsSelectMode(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      exitSelectMode();
       loadInitialBatch();
-    } catch (error) {
-      console.error('Error deactivating products:', error);
-      Alert.alert('Error', 'Failed to deactivate products');
+    } catch {
+      setErrorMessage('Failed to deactivate products');
+      setShowErrorDialog(true);
     }
-  }, [selectedProducts, products, loadInitialBatch]);
+  }, [selectedProducts, products, exitSelectMode, loadInitialBatch]);
 
   const handleBatchDelete = useCallback(async () => {
-    Alert.alert(
-      'Confirm Delete',
-      `Delete ${selectedProducts.size} products? This action cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await database.write(async () => {
-                const deletes = Array.from(selectedProducts).map(async (productId) => {
-                  const product = products.find(p => p.id === productId)?.product;
-                  if (product) {
-                    await product.markAsDeleted();
-                  }
-                });
-                await Promise.all(deletes);
-              });
+    try {
+      await database.write(async () => {
+        await Promise.all(
+          Array.from(selectedProducts).map(async id => {
+            const p = products.find(p => p.id === id)?.product;
+            if (p) await p.markAsDeleted();
+          })
+        );
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      exitSelectMode();
+      loadInitialBatch();
+    } catch {
+      setErrorMessage('Failed to delete products');
+      setShowErrorDialog(true);
+    }
+  }, [selectedProducts, products, exitSelectMode, loadInitialBatch]);
 
-              Alert.alert('Success', `${selectedProducts.size} products deleted`);
-              setSelectedProducts(new Set());
-              setIsSelectMode(false);
-              loadInitialBatch();
-            } catch (error) {
-              console.error('Error deleting products:', error);
-              Alert.alert('Error', 'Failed to delete products');
-            }
-          }
-        }
-      ]
-    );
-  }, [selectedProducts, products, loadInitialBatch]);
+  const executeBatchAction = useCallback(async () => {
+    setShowBatchDialog(false);
+    if (!batchAction) return;
+    if (batchAction === 'activate') await handleBatchActivate();
+    else if (batchAction === 'deactivate') await handleBatchDeactivate();
+    else if (batchAction === 'delete') await handleBatchDelete();
+    setBatchAction(null);
+  }, [batchAction, handleBatchActivate, handleBatchDeactivate, handleBatchDelete]);
 
-  // Navigation
-  const navigateToCustomize = useCallback((productId: string) => {
-    router.push(`/edit-product/${productId}`);
-  }, [router]);
-
-
-
-  const navigateToAddFromTemplates = useCallback(() => {
-    router.push('/(auth)/add-product');
-  }, [router]);
-
-  // Render product item
-  const renderProductItem = useCallback(({ item }: { item: ProductWithTemplateInfo }) => {
-    const isSelected = selectedProducts.has(item.id);
-
-    return (
-      <TouchableOpacity
+  // Render item
+  const renderProductItem = useCallback(({ item, index }: { item: ProductWithTemplateInfo; index: number }) => (
+    <MotiView
+      from={{ opacity: 0, translateY: 12 }}
+      animate={{ opacity: 1, translateY: 0 }}
+      transition={{ delay: Math.min(index * 40, 300), type: 'spring', damping: 20 }}
+    >
+      <ProductCard
+        item={item}
+        isSelectMode={isSelectMode}
+        isSelected={selectedProducts.has(item.id)}
+        isDark={isDark}
         onPress={() => {
-          if (isSelectMode) {
-            toggleProductSelection(item.id);
-          } else {
-            navigateToCustomize(item.id);
-          }
+          if (isSelectMode) toggleProductSelection(item.id);
+          else router.push(`/edit-product/${item.id}`);
         }}
         onLongPress={() => {
           setIsSelectMode(true);
           toggleProductSelection(item.id);
         }}
-        delayLongPress={500}
-        activeOpacity={0.7}
-      >
-        <Card className={`mb-3 ${isSelected ? 'border-2 border-brand' : ''}`}>
-          <CardContent className="p-4">
-            <View className="flex-row items-start">
-              {/* Icon - Show template icon if available, otherwise default product icon */}
-              <View 
-                className="w-10 h-10 rounded-lg items-center justify-center mr-3 mt-1"
-                style={{ backgroundColor: item.templateColor ? `${item.templateColor}20` : '#94a3b820' }}
-              >
-                <Ionicons 
-                  name={item.templateIcon ? (item.templateIcon as any) : 'cube-outline'} 
-                  size={20} 
-                  color={item.templateColor || '#94a3b8'} 
-                />
-              </View>
+        onEdit={() => router.push(`/edit-product/${item.id}`)}
+      />
+    </MotiView>
+  ), [isSelectMode, selectedProducts, isDark, toggleProductSelection, router]);
 
-              {/* Product Info */}
-              <View className="flex-1">
-                <View className="flex-row items-center justify-between mb-1">
-                  <ThemedText variant="subheading" size="base" className="font-semibold flex-1" numberOfLines={1}>
-                    {item.name}
-                  </ThemedText>
-                  {isSelectMode && (
-                    <View className={`w-6 h-6 rounded-full border-2 items-center justify-center ml-2 ${
-                      isSelected 
-                        ? 'bg-brand border-brand' 
-                        : 'border-border dark:border-dark-border'
-                    }`}>
-                      {isSelected && (
-                        <Ionicons name="checkmark" size={14} color="white" />
-                      )}
-                    </View>
-                  )}
-                </View>
+  const renderListFooter = useCallback(() =>
+    loadingMore
+      ? <View className="py-5 items-center"><ActivityIndicator size="small" color={isDark ? '#38bdf8' : '#0ea5e9'} /></View>
+      : null
+  , [loadingMore, isDark]);
 
-                <View className="flex-row items-center mb-2 flex-wrap">
-                  {item.hasTemplate ? (
-                    <>
-                      <ThemedText variant="muted" size="xs">
-                        From: {item.templateName}
-                      </ThemedText>
-                      <View className="w-1 h-1 rounded-full bg-gray-400 mx-2" />
-                    </>
-                  ) : (
-                    <>
-                      <Badge variant="default" size="sm" className="mr-2">
-                        Custom Product
-                      </Badge>
-                    </>
-                  )}
-                  <ThemedText variant="muted" size="xs">
-                    {item.createdAt.toLocaleDateString('fr-FR')}
-                  </ThemedText>
-                </View>
-
-                {/* Price Info */}
-                {(item.sellingPrice > 0 || item.costPrice > 0) && (
-                  <View className="flex-row mb-2">
-                    {item.sellingPrice > 0 && (
-                      <ThemedText variant="default" size="sm" className="font-semibold text-brand mr-3">
-                        {item.sellingPrice.toLocaleString()} FBU
-                      </ThemedText>
-                    )}
-                    {item.costPrice > 0 && (
-                      <ThemedText variant="muted" size="xs">
-                        Cost: {item.costPrice.toLocaleString()} FBU
-                      </ThemedText>
-                    )}
-                  </View>
-                )}
-
-                {/* Status Badges */}
-                <View className="flex-row flex-wrap gap-2 mb-3">
-                  <Badge variant={item.isActive ? "success" : "error"} size="sm">
-                    {item.isActive ? 'Active' : 'Inactive'}
-                  </Badge>
-                  
-                  <Badge variant={item.isCustomized ? "success" : "default"} size="sm">
-                    {item.isCustomized ? 'Customized' : 'Default'}
-                  </Badge>
-
-                  {item.stockQuantity > 0 && (
-                    <Badge variant="warning" size="sm">
-                      Stock: {item.stockQuantity}
-                    </Badge>
-                  )}
-
-                  {item.hasTemplate && (
-                    <Badge variant="outline" size="sm">
-                      From Template
-                    </Badge>
-                  )}
-                </View>
-
-                {/* Quick Actions (only in normal mode) */}
-                {!isSelectMode && (
-                  <View className="flex-row gap-2">
-                   
-                    
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onPress={() => navigateToCustomize(item.id)}
-                      icon="pencil-outline"
-                      className="flex-1"
-                    >
-                      Edit this product
-                    </Button>
-                  </View>
-                )}
-              </View>
-            </View>
-          </CardContent>
-        </Card>
-      </TouchableOpacity>
-    );
-  }, [isSelectMode, selectedProducts, toggleProductSelection, navigateToCustomize]);
-
-  // List footer
-  const renderListFooter = useCallback(() => {
-    if (!loadingMore) return null;
-    
-    return (
-      <View className="py-4">
-        <ActivityIndicator size="small" color="#3B82F6" />
-      </View>
-    );
-  }, [loadingMore]);
-
-  // Empty state
   const renderEmptyState = useCallback(() => {
-    if (loading) {
-      return (
-        <View className="py-8">
-          <Loading />
-        </View>
-      );
-    }
-
+    if (loading) return <View className="py-12"><Loading /></View>;
     return (
       <EmptyState
         icon="cube-outline"
@@ -633,191 +678,96 @@ export default function TemplatesProductsScreen() {
         description={
           searchQuery
             ? `No products matching "${searchQuery}"`
-            : "You haven't added any products yet. Add your first product to get started."
+            : "You haven't added any products yet."
         }
         action={{
-          label: searchQuery ? "Clear Search" : "Add Product",
-          onPress: searchQuery 
-            ? () => {
-                setSearchQuery('');
-                loadInitialBatch();
-              }
-            : navigateToAddFromTemplates
+          label: searchQuery ? 'Clear Search' : 'Add Product',
+          onPress: searchQuery
+            ? () => setSearchQuery('')
+            : () => router.push('/(auth)/add-product'),
         }}
       />
     );
-  }, [loading, searchQuery, loadInitialBatch, navigateToAddFromTemplates]);
+  }, [loading, searchQuery, router]);
 
-  // Filter options
+  // Config
   const filterOptions = [
     { value: 'all', label: 'All', icon: 'grid-outline' },
     { value: 'active', label: 'Active', icon: 'checkmark-circle-outline' },
     { value: 'inactive', label: 'Inactive', icon: 'pause-circle-outline' },
     { value: 'customized', label: 'Customized', icon: 'construct-outline' },
-    { value: 'withTemplate', label: 'From Template', icon: 'copy-outline' },
+    { value: 'withTemplate', label: 'Template', icon: 'copy-outline' },
     { value: 'withoutTemplate', label: 'Custom', icon: 'cube-outline' },
   ];
 
-  // Sort options
-  const sortOptions = [
+  const sortOptions: { value: SortType; label: string }[] = [
     { value: 'created', label: 'Recent' },
-    { value: 'name', label: 'Name' },
+    { value: 'name', label: 'A–Z' },
     { value: 'status', label: 'Status' },
     { value: 'price', label: 'Price' },
   ];
 
-  // Batch action modal
-  const renderBatchActionModal = useCallback(() => {
-    if (!batchAction || selectedProducts.size === 0) return null;
-
-    const actions = {
-      activate: {
-        title: 'Activate Products',
-        description: `Activate ${selectedProducts.size} selected products?`,
-        confirmText: 'Activate',
-        action: handleBatchActivate,
-        color: 'success' as const,
-        icon: 'checkmark-circle' as const
-      },
-      deactivate: {
-        title: 'Deactivate Products',
-        description: `Deactivate ${selectedProducts.size} selected products?`,
-        confirmText: 'Deactivate',
-        action: handleBatchDeactivate,
-        color: 'warning' as const,
-        icon: 'pause-circle' as const
-      },
-      delete: {
-        title: 'Delete Products',
-        description: `Permanently delete ${selectedProducts.size} selected products? This cannot be undone.`,
-        confirmText: 'Delete',
-        action: handleBatchDelete,
-        color: 'error' as const,
-        icon: 'trash' as const
-      }
+  // Batch dialog config
+  const batchDialogConfig = useMemo(() => {
+    if (!batchAction) return null;
+    const cfg = {
+      activate:   { title: 'Activate Products',   description: `Activate ${selectedProducts.size} selected product(s)?`,   variant: 'success' as const, icon: 'checkmark-circle', confirmLabel: 'Activate' },
+      deactivate: { title: 'Deactivate Products', description: `Deactivate ${selectedProducts.size} selected product(s)?`, variant: 'warning' as const, icon: 'pause-circle',     confirmLabel: 'Deactivate' },
+      delete:     { title: 'Delete Products',     description: `Permanently delete ${selectedProducts.size} product(s)? This cannot be undone.`, variant: 'error' as const, icon: 'trash', confirmLabel: 'Delete' },
     };
-
-    const currentAction = actions[batchAction];
-
-    return (
-      <View className="absolute inset-0 bg-black/50 justify-center items-center z-50">
-        <Card className="w-11/12 max-w-md">
-          <CardContent className="p-6">
-            <View className="items-center mb-4">
-              <View className={`w-12 h-12 rounded-full bg-${currentAction.color}/10 items-center justify-center mb-3`}>
-                <Ionicons 
-                  name={currentAction.icon} 
-                  size={24} 
-                  color={
-                    batchAction === 'activate' ? '#10B981' :
-                    batchAction === 'deactivate' ? '#F59E0B' : '#EF4444'
-                  } 
-                />
-              </View>
-              <ThemedText variant="subheading" size="lg" className="text-center">
-                {currentAction.title}
-              </ThemedText>
-              <ThemedText variant="muted" size="sm" className="text-center mt-2">
-                {currentAction.description}
-              </ThemedText>
-            </View>
-
-            <View className="flex-row gap-3">
-              <Button
-                variant="outline"
-                onPress={() => setBatchAction(null)}
-                className="flex-1"
-              >
-                Cancel
-              </Button>
-              <Button
-                variant={batchAction === 'delete' ? 'destructive' : 'default'}
-                onPress={() => {
-                  currentAction.action();
-                  setBatchAction(null);
-                }}
-                className="flex-1"
-              >
-                {currentAction.confirmText}
-              </Button>
-            </View>
-          </CardContent>
-        </Card>
-      </View>
-    );
-  }, [batchAction, selectedProducts.size, handleBatchActivate, handleBatchDeactivate, handleBatchDelete]);
+    return cfg[batchAction];
+  }, [batchAction, selectedProducts.size]);
 
   return (
-    <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
-      <PremiumHeader 
-        title="My Products"
-        showBackButton
-        action={
-          isSelectMode ? (
-            <View className="flex-row items-center gap-2">
-              <TouchableOpacity onPress={selectAllProducts}>
-                <ThemedText variant="brand" size="sm">
-                  {selectedProducts.size === filteredProducts.length ? 'Deselect All' : 'Select All'}
-                </ThemedText>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => {
-                setIsSelectMode(false);
-                setSelectedProducts(new Set());
-              }}>
-                <ThemedText variant="muted" size="sm">
-                  Cancel
-                </ThemedText>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <TouchableOpacity onPress={() => setIsSelectMode(true)}>
-              <ThemedText variant="brand" size="sm">
-                Select
-              </ThemedText>
-            </TouchableOpacity>
-          )
-        }
-      />
+    <View className="flex-1 bg-surface-soft dark:bg-dark-surface">
 
-      {/* Quick Stats */}
-      <View className="px-4 py-3">
+      {/* Header — no action prop */}
+      <PremiumHeader title="My Products" showBackButton />
+
+      {/* ── Stats Row ───────────────────────────── */}
+      <MotiView
+        from={{ opacity: 0, translateY: -8 }}
+        animate={{ opacity: 1, translateY: 0 }}
+        transition={{ delay: 60, type: 'spring', damping: 18 }}
+        className="px-4 pt-3 pb-2"
+      >
         <View className="flex-row gap-2">
-          <Card className="flex-1">
-            <CardContent className="p-3">
-              <ThemedText variant="heading" size="lg" className="font-bold text-brand">
-                {stats.total}
-              </ThemedText>
-              <ThemedText variant="muted" size="xs">
-                Total Products
-              </ThemedText>
-            </CardContent>
-          </Card>
-          <Card className="flex-1">
-            <CardContent className="p-3">
-              <ThemedText variant="heading" size="lg" className="font-bold text-green-600">
-                {stats.active}
-              </ThemedText>
-              <ThemedText variant="muted" size="xs">
-                Active
-              </ThemedText>
-            </CardContent>
-          </Card>
-          <Card className="flex-1">
-            <CardContent className="p-3">
-              <ThemedText variant="heading" size="lg" className="font-bold text-purple-600">
-                {stats.withTemplate}
-              </ThemedText>
-              <ThemedText variant="muted" size="xs">
-                From Templates
-              </ThemedText>
-            </CardContent>
-          </Card>
+          <StatPill value={stats.total}        label="Total"     color={['#0ea5e9', '#38bdf8']} isDark={isDark} />
+          <StatPill value={stats.active}       label="Active"    color={['#22c55e', '#4ade80']} isDark={isDark} />
+          <StatPill value={stats.withTemplate} label="Templates" color={['#6366f1', '#818cf8']} isDark={isDark} />
+          <StatPill value={stats.customized}   label="Custom"    color={['#f59e0b', '#fbbf24']} isDark={isDark} />
         </View>
-      </View>
+      </MotiView>
 
-      {/* Search and Filters */}
-      <View className="px-4 py-3 border-b border-border dark:border-dark-border bg-surface dark:bg-dark-surface">
-        <View className="flex-row gap-3 mb-3">
+      {/* ── Select Mode Bar ─────────────────────── */}
+      {isSelectMode && (
+        <MotiView
+          from={{ opacity: 0, translateY: -6 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: 'spring', damping: 20 }}
+          className="mx-4 mb-2 px-4 py-2.5 rounded-2xl flex-row items-center bg-brand-soft dark:bg-dark-brand-soft border border-brand/20"
+        >
+          <View className="flex-row items-center flex-1">
+            <View className="w-2 h-2 rounded-full bg-brand dark:bg-dark-brand mr-2" />
+            <Text className="text-brand dark:text-dark-brand text-sm font-semibold">
+              {selectedProducts.size} selected
+            </Text>
+          </View>
+          <TouchableOpacity onPress={selectAllProducts} activeOpacity={0.75} className="mr-4">
+            <Text className="text-brand dark:text-dark-brand text-sm font-medium">
+              {selectedProducts.size === filteredProducts.length ? 'Deselect All' : 'Select All'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={exitSelectMode} activeOpacity={0.75}>
+            <Text className="text-text-muted dark:text-dark-text-muted text-sm">Cancel</Text>
+          </TouchableOpacity>
+        </MotiView>
+      )}
+
+      {/* ── Search + Filters ────────────────────── */}
+      <View className="px-4 pb-3">
+        {/* Search row */}
+        <View className="flex-row gap-2 mb-3 items-center">
           <View className="flex-1">
             <Input
               placeholder="Search products..."
@@ -826,165 +776,179 @@ export default function TemplatesProductsScreen() {
               leftIcon="search-outline"
             />
           </View>
-          
-          <Button
-            variant="outline"
-            size="sm"
+          <TouchableOpacity
             onPress={onRefresh}
-            loading={refreshing}
-            icon="refresh-outline"
+            activeOpacity={0.75}
+            className="w-11 h-11 rounded-xl bg-surface dark:bg-dark-surface-soft border border-border dark:border-dark-border items-center justify-center"
           >
-            {""}
-          </Button>
+            {refreshing
+              ? <ActivityIndicator size="small" color={isDark ? '#38bdf8' : '#0ea5e9'} />
+              : <Ionicons name="refresh-outline" size={18} color={isDark ? '#94a3b8' : '#64748b'} />
+            }
+          </TouchableOpacity>
         </View>
 
-        <View className="flex-row gap-2">
-          <FlatList
-            horizontal
-            data={filterOptions}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                onPress={() => setFilter(item.value as FilterType)}
-                className={`px-3 py-2 rounded-full flex-row items-center mr-2 ${
-                  filter === item.value
-                    ? 'bg-brand'
-                    : 'bg-gray-100 dark:bg-gray-800'
-                }`}
-              >
-                <Ionicons 
-                  name={item.icon as any} 
-                  size={16} 
-                  color={
-                    filter === item.value
-                      ? 'white'
-                      : (isDark ? '#94a3b8' : '#64748b')
-                  } 
-                />
-                <ThemedText
-                  variant={filter === item.value ? "label" : "default"}
-                  size="sm"
-                  className="ml-1"
-                >
-                  {item.label}
-                </ThemedText>
-              </TouchableOpacity>
-            )}
-            keyExtractor={item => item.value}
-            showsHorizontalScrollIndicator={false}
-          />
-        </View>
-
-        {/* Sort Options */}
-        <View className="flex-row justify-end mt-2">
-          <View className="flex-row gap-2">
-            {sortOptions.map(option => (
-              <TouchableOpacity
-                key={option.value}
-                onPress={() => setSortBy(option.value as SortType)}
-                className={`px-3 py-1 rounded-sm ${
-                  sortBy === option.value
-                    ? 'bg-brand/20'
-                    : ''
-                }`}
-              >
-                <ThemedText
-                  variant={sortBy === option.value ? "brand" : "muted"}
-                  size="xs"
-                >
-                  {option.label}
-                </ThemedText>
-              </TouchableOpacity>
+        {/* Filter chips */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-2">
+          <View className="flex-row gap-2 pr-4">
+            {filterOptions.map(opt => (
+              <FilterChip
+                key={opt.value}
+                label={opt.label}
+                icon={opt.icon}
+                selected={filter === opt.value}
+                isDark={isDark}
+                onPress={() => {
+                  setFilter(opt.value as FilterType);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }}
+              />
             ))}
           </View>
+        </ScrollView>
+
+        {/* Sort tabs */}
+        <View className="flex-row items-center gap-1">
+          <Text className="text-text-muted dark:text-dark-text-muted text-xs mr-1">Sort:</Text>
+          {sortOptions.map(opt => (
+            <SortTab
+              key={opt.value}
+              label={opt.label}
+              selected={sortBy === opt.value}
+              isDark={isDark}
+              onPress={() => {
+                setSortBy(opt.value);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }}
+            />
+          ))}
         </View>
       </View>
 
-      {/* Products List */}
+      {/* ── Product List ────────────────────────── */}
       <FlatList
         data={filteredProducts}
         renderItem={renderProductItem}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={{ padding: 16, flexGrow: 1 }}
+        keyExtractor={item => item.id}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: isSelectMode ? 120 : 100, flexGrow: 1 }}
         ListEmptyComponent={renderEmptyState}
         ListFooterComponent={renderListFooter}
         refreshControl={
-          <RefreshControl 
-            refreshing={refreshing} 
+          <RefreshControl
+            refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={isDark ? '#fff' : '#000'}
+            tintColor={isDark ? '#38bdf8' : '#0ea5e9'}
           />
         }
         onEndReached={loadMoreProducts}
         onEndReachedThreshold={0.3}
         maxToRenderPerBatch={10}
         windowSize={5}
-        removeClippedSubviews={true}
+        removeClippedSubviews
         initialNumToRender={10}
         showsVerticalScrollIndicator={false}
       />
 
-      {/* Batch Actions Bar */}
-      {isSelectMode && selectedProducts.size > 0 && (
-        <View className="absolute bottom-0 left-0 right-0 bg-surface dark:bg-dark-surface border-t border-border dark:border-dark-border p-4">
-          <View className="flex-row justify-between items-center">
-            <ThemedText variant="default" size="sm">
-              {selectedProducts.size} selected
-            </ThemedText>
-            
-            <View className="flex-row gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onPress={() => setBatchAction('activate')}
-                icon="checkmark-circle-outline"
-                disabled={selectedProducts.size === 0}
-              >
-                Activate
-              </Button>
-              
-              <Button
-                variant="outline"
-                size="sm"
-                onPress={() => setBatchAction('deactivate')}
-                icon="pause-circle-outline"
-                disabled={selectedProducts.size === 0}
-              >
-                Deactivate
-              </Button>
-              
-              <Button
-                variant="destructive"
-                size="sm"
-                onPress={() => setBatchAction('delete')}
-                icon="trash-outline"
-                disabled={selectedProducts.size === 0}
-              >
-                Delete
-              </Button>
-            </View>
-          </View>
-        </View>
-      )}
-
-      {/* Add Products Button */}
+      {/* ── FAB ─────────────────────────────────── */}
       {!isSelectMode && (
-        <TouchableOpacity
-          onPress={navigateToAddFromTemplates}
-          className="absolute bottom-6 right-6 w-14 h-14 rounded-full bg-brand items-center justify-center shadow-lg"
-          style={{
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.25,
-            shadowRadius: 4,
-            elevation: 5,
-          }}
+        <MotiView
+          from={{ scale: 0, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: 'spring', damping: 16, delay: 200 }}
+          className="absolute bottom-6 right-5"
         >
-          <Ionicons name="add" size={24} color="white" />
-        </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => router.push('/(auth)/add-product')}
+            activeOpacity={0.85}
+          >
+            <LinearGradient
+              colors={isDark ? ['#38bdf8', '#818cf8'] : ['#0ea5e9', '#6366f1']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{
+                width: 56, height: 56, borderRadius: 18,
+                alignItems: 'center', justifyContent: 'center',
+                shadowColor: isDark ? '#38bdf8' : '#0ea5e9',
+                shadowOffset: { width: 0, height: 8 },
+                shadowOpacity: 0.4,
+                shadowRadius: 16,
+                elevation: 8,
+              }}
+            >
+              <Ionicons name="add" size={26} color="white" />
+            </LinearGradient>
+          </TouchableOpacity>
+        </MotiView>
       )}
 
-      {/* Batch Action Modal */}
-      {renderBatchActionModal()}
+      {/* ── Batch Action Footer ──────────────────── */}
+      <Animated.View
+        style={{ transform: [{ translateY: footerAnim }] }}
+        className="absolute bottom-0 left-0 right-0 bg-surface dark:bg-dark-surface border-t border-border dark:border-dark-border px-4 pt-3 pb-6"
+      >
+        <View className="flex-row gap-2">
+          <TouchableOpacity
+            onPress={() => { setBatchAction('activate'); setShowBatchDialog(true); }}
+            activeOpacity={0.8}
+            className="flex-1 flex-row items-center justify-center py-3 rounded-xl bg-success-soft dark:bg-dark-success-soft border border-success/20"
+          >
+            <Ionicons name="checkmark-circle-outline" size={16} color={isDark ? '#4ade80' : '#22c55e'} />
+            <Text className="text-success dark:text-dark-success font-semibold text-sm ml-1.5">Activate</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => { setBatchAction('deactivate'); setShowBatchDialog(true); }}
+            activeOpacity={0.8}
+            className="flex-1 flex-row items-center justify-center py-3 rounded-xl bg-warning-soft dark:bg-dark-warning-soft border border-warning/20"
+          >
+            <Ionicons name="pause-circle-outline" size={16} color={isDark ? '#fbbf24' : '#f59e0b'} />
+            <Text className="text-warning dark:text-dark-warning font-semibold text-sm ml-1.5">Pause</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => { setBatchAction('delete'); setShowBatchDialog(true); }}
+            activeOpacity={0.8}
+            className="flex-1 flex-row items-center justify-center py-3 rounded-xl bg-error-soft dark:bg-dark-error-soft border border-error/20"
+          >
+            <Ionicons name="trash-outline" size={16} color={isDark ? '#f87171' : '#ef4444'} />
+            <Text className="text-error dark:text-dark-error font-semibold text-sm ml-1.5">Delete</Text>
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
+
+      {/* ── Dialogs ──────────────────────────────── */}
+      {batchDialogConfig && (
+        <CustomDialog
+          visible={showBatchDialog}
+          title={batchDialogConfig.title}
+          description={batchDialogConfig.description}
+          variant={batchDialogConfig.variant}
+          icon={batchDialogConfig.icon}
+          showCancel
+          cancelLabel="Cancel"
+          onCancel={() => { setShowBatchDialog(false); setBatchAction(null); }}
+          actions={[{
+            label: batchDialogConfig.confirmLabel,
+            variant: batchAction === 'delete' ? 'destructive' : 'default',
+            onPress: executeBatchAction,
+          }]}
+          onClose={() => { setShowBatchDialog(false); setBatchAction(null); }}
+        />
+      )}
+
+      <CustomDialog
+        visible={showErrorDialog}
+        title="Something went wrong"
+        description={errorMessage}
+        variant="error"
+        icon="alert-circle"
+        actions={[{
+          label: 'OK',
+          variant: 'default',
+          onPress: () => { setShowErrorDialog(false); setErrorMessage(''); },
+        }]}
+        onClose={() => { setShowErrorDialog(false); setErrorMessage(''); }}
+      />
     </View>
   );
 }

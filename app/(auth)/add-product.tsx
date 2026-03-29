@@ -317,7 +317,7 @@ function BulkImportModal({ visible, onClose, onImport }: any) {
           showBackButton 
         />
         
-        <View className="p-4 flex-1">
+        <View className="py-4 px-2 flex-1">
           <Card className="mb-4">
             <CardContent className="p-4">
               <ThemedText variant="subheading" className="mb-3">
@@ -583,7 +583,7 @@ function TemplateModal({ visible, onClose, onSelectTemplate, shopId }: any) {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <View className="p-4">
+          <View className="py-4 px-2">
             {/* Info Banner */}
             <Card className="mb-4 bg-info/10 border-info/20">
               <CardContent className="p-3">
@@ -933,7 +933,7 @@ function TemplateCustomizer({ template, onSave, onCancel }: any) {
         searchPlaceholder="Rechercher produit..."
       />
       
-      <ScrollView className="p-4" keyboardShouldPersistTaps="handled">
+      <ScrollView className="py-4 px-2" keyboardShouldPersistTaps="handled">
         <Card className="mb-4">
           <CardContent className="p-4">
             <View className="flex-row items-center mb-3">

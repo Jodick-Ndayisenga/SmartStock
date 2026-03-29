@@ -72,24 +72,13 @@ export default function DashboardScreen() {
     setShopReady(!!currentShop);
   }, [currentShop]);
 
-
-
-
   const requestNotificationPermissions = async () => {
     try {
       const initialized = await notificationService.initialize();
       setNotificationsEnabled(initialized);
       
-      if (initialized) {
-        console.log('✅ Notifications enabled');
-        showNotification({
-          type: 'success',
-          title: 'Notifications Enabled',
-          message: 'You will receive stock alerts when products are low or out of stock',
-          duration: 3000,
-        });
-      } else {
-        // Show custom dialog to ask for permissions
+      if (!initialized) {
+         // Show custom dialog to ask for permissions
         setShowPermissionDialog(true);
       }
     } catch (error) {
@@ -234,7 +223,7 @@ export default function DashboardScreen() {
                   activeOpacity={0.9}
                 >
                   <LinearGradient
-                    colors={action.gradient}
+                    colors={[action.gradient[0], action.gradient[1]]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     className="p-4 rounded-2xl items-center"

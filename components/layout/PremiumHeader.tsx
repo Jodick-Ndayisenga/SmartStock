@@ -251,7 +251,7 @@ export default function PremiumHeader({
                 )}
 
                 {/* Custom Action */}
-                {action && (
+                {/* {action && (
                   <MotiView
                     from={{ scale: 0.8, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
@@ -259,7 +259,7 @@ export default function PremiumHeader({
                   >
                     {action}
                   </MotiView>
-                )}
+                )} */}
 
                 {/* Profile Button */}
                 {showProfile && user && (
@@ -347,20 +347,6 @@ export default function PremiumHeader({
                     </View>
                   </View>
                 ))}
-              </MotiView>
-            )}
-
-            {/* Subtitle for non-dashboard */}
-            {!isDashboard && subtitle && (
-              <MotiView
-                from={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 250 }}
-                className="mt-3"
-              >
-                <Text className="text-white/80 text-sm">
-                  {subtitle}
-                </Text>
               </MotiView>
             )}
           </View>

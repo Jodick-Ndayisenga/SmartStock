@@ -24,9 +24,6 @@ import { fr } from 'date-fns/locale';
 import { Product } from '@/database/models/Product';
 import { StockMovement, MovementType } from '@/database/models/StockMovement';
 
-// Unit Conversion
-import { getUnitInfo } from '@/utils/unitConversions';
-
 // Components
 import PremiumHeader from '@/components/layout/PremiumHeader';
 import { Button } from '@/components/ui/Button';
@@ -35,7 +32,6 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Loading } from '@/components/ui/Loading';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { Select } from '@/components/ui/Select';
 
 // ============================================================================
 // TYPES

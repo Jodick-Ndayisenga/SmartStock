@@ -1538,7 +1538,7 @@ const CategoryBreakdown = () => {
                   showTextBackground
                   textBackgroundRadius={20}
                   textBackgroundColor={isDark ? '#1e293b' : '#ffffff'}
-                  textBackgroundColorOpacity={0.1}
+                  //textBackgroundColorOpacity={0.1}
                   // Option 2: Medium (Default but larger)
                   radius={SCREEN_WIDTH / 2.5}  // Medium large
                   innerRadius={SCREEN_WIDTH / 4.2}
@@ -1863,7 +1863,7 @@ const CategoryBreakdown = () => {
         title="Recent Transactions"
         subtitle="Latest cash flow activities"
         action={
-          <TouchableOpacity onPress={() => router.push('/(tabs)/transactions')}>
+          <TouchableOpacity onPress={() => router.push(`/shops/${currentShop?.id}/transactions`)}>
             <ThemedText variant="brand" size="sm">View All</ThemedText>
           </TouchableOpacity>
         }
@@ -1961,11 +1961,6 @@ const CategoryBreakdown = () => {
         title="Cash Flow Analysis"
         subtitle={currentShop.name}
         showBackButton
-        action={
-          <TouchableOpacity onPress={() => setShowExportModal(true)} className="mr-2">
-            <Ionicons name="download-outline" size={22} color="#0ea5e9" />
-          </TouchableOpacity>
-        }
       />
 
       <ScrollView
@@ -2054,10 +2049,9 @@ const CategoryBreakdown = () => {
         )}
 
         {/* Quick Actions */}
-        <View className="flex-row gap-3 mx-4 mt-4 mb-8">
+        <View className="flex-row gap-3 mx-2 mt-4 mb-4">
           <Button 
             variant="default" 
-            size="lg" 
             className="flex-1"
             onPress={() => router.push('/(tabs)/sales')}
           >
@@ -2066,13 +2060,20 @@ const CategoryBreakdown = () => {
           </Button>
           <Button 
             variant="outline" 
-            size="lg" 
             className="flex-1"
             onPress={() => router.push('/(auth)/add-transaction')}
           >
             <Ionicons name="remove-circle" size={20} color="#ef4444" />
             <ThemedText className="ml-2">Add Expense</ThemedText>
           </Button>
+        </View>
+        <View className='px-2 pb-8'>
+        <Button variant='success' size='lg'>
+          <Ionicons name="document-text" size={20} color="white" />
+          <ThemedText className="text-white ml-2" onPress={() => setShowExportModal(true)}>
+            Export Report
+          </ThemedText>
+        </Button>
         </View>
       </ScrollView>
 

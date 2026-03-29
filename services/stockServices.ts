@@ -17,35 +17,112 @@ export interface StockMovementInput {
   notes?: string;
   recordedBy?: string;
   timestamp?: number;
+  // Add this new parameter to control whether to use a separate write
+  useExistingWriter?: boolean;
+  // Add this to pass the current writer's database instance if needed
+  existingWriter?: any;
 }
 
 export class StockService {
   /**
    * Atomic stock update: creates movement + updates product.stockQuantity in one transaction
+   * Now supports being called within an existing writer
    */
+  static async recordMovement(input: StockMovementInput): Promise<void> {
+    const {
+      productId,
+      shopId,
+      quantity,
+      movementType,
+      batchNumber,
+      expiryDate,
+      supplierId,
+      customerId,
+      referenceId,
+      notes,
+      recordedBy,
+      timestamp = Date.now(),
+      useExistingWriter = false,
+      existingWriter = null
+    } = input;
 
-  // CORRECTED recordMovement method
-static async recordMovement(input: StockMovementInput): Promise<void> {
-  const {
-    productId,
-    shopId,
-    quantity,
-    movementType,
-    batchNumber,
-    expiryDate,
-    supplierId,
-    customerId,
-    referenceId,
-    notes,
-    recordedBy,
-    timestamp = Date.now(),
-  } = input;
+    if (quantity <= 0) {
+      throw new Error('Quantity must be positive');
+    }
 
-  if (quantity <= 0) {
-    throw new Error('Quantity must be positive');
+    // If we're using an existing writer, just execute the operations directly
+    if (useExistingWriter && existingWriter) {
+      console.log('[StockService] Using existing writer for stock movement');
+      await this.performStockMovement({
+        productId,
+        shopId,
+        quantity,
+        movementType,
+        batchNumber,
+        expiryDate,
+        supplierId,
+        customerId,
+        referenceId,
+        notes,
+        recordedBy,
+        timestamp
+      });
+      return;
+    }
+
+    // Otherwise, create a new writer
+    console.log('[StockService] Creating new writer for stock movement');
+    return await database.write(async () => {
+      await this.performStockMovement({
+        productId,
+        shopId,
+        quantity,
+        movementType,
+        batchNumber,
+        expiryDate,
+        supplierId,
+        customerId,
+        referenceId,
+        notes,
+        recordedBy,
+        timestamp
+      });
+    });
   }
 
-  return await database.write(async () => {
+  /**
+   * Internal method to perform the actual stock movement operations
+   * This can be called within an existing writer
+   */
+  static async performStockMovement(input: {
+    productId: string;
+    shopId: string;
+    quantity: number;
+    movementType: MovementType;
+    batchNumber?: string;
+    expiryDate?: number;
+    supplierId?: string;
+    customerId?: string;
+    referenceId?: string;
+    notes?: string;
+    recordedBy?: string;
+    timestamp: number;
+  }): Promise<void> {
+    const {
+      productId,
+      shopId,
+      quantity,
+      movementType,
+      batchNumber,
+      expiryDate,
+      supplierId,
+      customerId,
+      referenceId,
+      notes,
+      recordedBy,
+      timestamp,
+    } = input;
+
     // 1. Fetch product
     const product = await database.get<Product>('products').find(productId);
 
@@ -78,8 +155,7 @@ static async recordMovement(input: StockMovementInput): Promise<void> {
     });
 
     console.log(`[StockService] ${movementType} ${quantity} units → ${product.name}. New stock: ${product.stockQuantity}`);
-  });
-}
+  }
 
   /**
    * Helper: Record a sale (most common use case)
@@ -90,7 +166,9 @@ static async recordMovement(input: StockMovementInput): Promise<void> {
     quantityInSellingUnits,
     customerId,
     recordedBy,
-    notes
+    notes,
+    useExistingWriter = false,
+    existingWriter = null
   }: {
     productId: string;
     shopId: string;
@@ -98,6 +176,8 @@ static async recordMovement(input: StockMovementInput): Promise<void> {
     customerId?: string;
     recordedBy?: string;
     notes?: string;
+    useExistingWriter?: boolean;
+    existingWriter?: any;
   }): Promise<void> {
     const product = await database.get<Product>('products').find(productId);
     
@@ -112,7 +192,9 @@ static async recordMovement(input: StockMovementInput): Promise<void> {
       customerId,
       recordedBy,
       notes,
-      referenceId: `sale-${Date.now()}`, // or pass real sale ID later
+      referenceId: `sale-${Date.now()}`,
+      useExistingWriter,
+      existingWriter
     });
   }
 
@@ -128,6 +210,8 @@ static async recordMovement(input: StockMovementInput): Promise<void> {
     supplierId,
     recordedBy,
     notes,
+    useExistingWriter = false,
+    existingWriter = null
   }: {
     productId: string;
     shopId: string;
@@ -137,6 +221,8 @@ static async recordMovement(input: StockMovementInput): Promise<void> {
     supplierId?: string;
     recordedBy?: string;
     notes?: string;
+    useExistingWriter?: boolean;
+    existingWriter?: any;
   }): Promise<void> {
     const product = await database.get<Product>('products').find(productId);
     
@@ -154,6 +240,8 @@ static async recordMovement(input: StockMovementInput): Promise<void> {
       recordedBy,
       notes,
       referenceId: `receipt-${Date.now()}`,
+      useExistingWriter,
+      existingWriter
     });
   }
 
@@ -162,8 +250,8 @@ static async recordMovement(input: StockMovementInput): Promise<void> {
    */
   static async recomputeStock(productId: string): Promise<number> {
     const movements = await database.get<StockMovement>('stock_movements')
-  .query(Q.where('product_id', productId))
-  .fetch();
+      .query(Q.where('product_id', productId))
+      .fetch();
 
     let stock = 0;
     for (const m of movements) {

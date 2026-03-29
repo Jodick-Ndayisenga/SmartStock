@@ -25,4 +25,5 @@ export const allowedProtectedPrefixes = [
     '(auth)/payment',
     '(auth)/test-notification',
     '(auth)/edit-payment',
+    '(auth)/stock-movements',
 ];

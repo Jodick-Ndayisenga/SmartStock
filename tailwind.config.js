@@ -95,7 +95,9 @@ module.exports = {
         'info-soft': '#dbeafe',
         'dark-info': '#60a5fa',
         'dark-info-soft': '#1e3a5c',
-        }
+        },
+        
+
       },
       borderRadius: {
         none: '0px',
@@ -139,7 +141,8 @@ module.exports = {
           semibold: 'Inter-SemiBold',
           bold: 'Inter-Bold',
         },
-      }
+      },
+      
     },
   },
   plugins: [],

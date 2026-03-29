@@ -172,7 +172,7 @@ export default function NewContactScreen() {
           title="New Contact" 
           showBackButton 
         />
-        <View className="flex-1 items-center justify-center p-4">
+        <View className="flex-1 items-center justify-center py-4 px-2">
           <View className="w-20 h-20 rounded-full bg-error-soft items-center justify-center mb-4">
             <Ionicons name="warning" size={32} color="#ef4444" />
           </View>
