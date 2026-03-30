@@ -84,12 +84,12 @@ export default function ProductSelection({
 
   return (
     <Card variant="elevated" className="mb-4 bg-surface dark:bg-dark-surface">
-      <CardContent className="p-2">
+      <CardContent className="p-0">
         {categories.length > 0 && (
           <ScrollView 
             horizontal 
             showsHorizontalScrollIndicator={false}
-            className="mb-4 -ml-4 pl-4"
+            className="mb-4 -ml-4 pl-2"
           >
             <View className="flex-row gap-2">
               <TouchableOpacity
@@ -135,7 +135,7 @@ export default function ProductSelection({
           </ScrollView>
         )}
 
-        <View className="mt-2">
+        <View className="mt-2 -ml-4 -mr-2 pl-2">
           <View className="flex-row justify-between items-center mb-4">
             <View>
               <ThemedText variant="label" className="font-semibold">
@@ -182,9 +182,9 @@ export default function ProductSelection({
                     onSelectProduct(product);
                   }}
                   className={`
-                    w-[48%] 
-                    ${index % 2 === 0 ? 'mr-[4%]' : ''} 
-                    mb-4
+                    w-[48.5%] 
+                    ${index % 2 === 0 ? 'mr-[2%]' : ''} 
+                    mb-2
                     bg-surface dark:bg-dark-surface 
                     rounded-xl 
                     border border-border dark:border-dark-border 

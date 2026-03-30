@@ -168,13 +168,14 @@ export default function DashboardScreen() {
       </View>
     );
   }
+  const shopName =currentShop?.name ?? 'Unknown Shop';
 
   return (
     <>
       <View className="flex-1 bg-surface-soft dark:bg-dark-surface-soft">
         <Animated.View style={{ opacity: headerOpacity }}>
           <PremiumHeader
-            title="HOME DASHBOARD"
+            title={`${shopName.length > 10 ? `${shopName.slice(0, 10)}...` : shopName} Dashboard`}
             showBackButton={false}
           />
         </Animated.View>

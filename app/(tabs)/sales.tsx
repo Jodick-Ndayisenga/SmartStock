@@ -268,7 +268,7 @@ function SalesScreen({ products, customers }: SalesScreenProps) {
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 100 }}
           >
-            <View className="p-2">
+            <View className="py-2">
               {!selectedProduct ? (
                 <ProductSelection
                   products={filteredProducts}

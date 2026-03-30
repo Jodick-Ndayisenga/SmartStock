@@ -1,25 +1,25 @@
 // components/PremiumHeader.tsx
-import React, { useState, useRef, useEffect } from 'react';
+import { useAuth } from "@/context/AuthContext";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
+import { MotiView } from "moti";
+import { useColorScheme } from "nativewind";
+import React, { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
-  View,
-  Text,
-  TouchableOpacity,
   Animated,
-  StatusBar,
-  TextInput,
   Dimensions,
-  Image
-} from 'react-native';
-import { useRouter } from 'expo-router';
-import { useTranslation } from 'react-i18next';
-import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '@/context/AuthContext';
-import { useColorScheme } from 'nativewind';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MotiView } from 'moti';
+  Image,
+  StatusBar,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 interface PremiumHeaderProps {
   title?: string;
@@ -48,7 +48,7 @@ export default function PremiumHeader({
   showProfile = true,
   transparent = false,
   elevated = true,
-  pathname = '',
+  pathname = "",
   onMenuPress,
   searchable = false,
   onSearch,
@@ -60,11 +60,11 @@ export default function PremiumHeader({
   const { t } = useTranslation();
   const { user } = useAuth();
   const { colorScheme } = useColorScheme();
-  const isDark = colorScheme === 'dark';
-  const insets = useSafeAreaInsets();
+  const isDark = colorScheme === "dark";
+
 
   const [scrollY] = useState(new Animated.Value(0));
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<TextInput>(null);
 
   // Auto-focus search when enabled
@@ -80,47 +80,47 @@ export default function PremiumHeader({
   const headerOpacity = scrollY.interpolate({
     inputRange: [0, 60],
     outputRange: [transparent ? 0.95 : 1, 1],
-    extrapolate: 'clamp',
+    extrapolate: "clamp",
   });
 
   const headerTranslateY = scrollY.interpolate({
     inputRange: [0, 60],
     outputRange: [0, -10],
-    extrapolate: 'clamp',
+    extrapolate: "clamp",
   });
 
   const getInitials = () => {
     if (user?.displayName) {
-      const names = user.displayName.split(' ');
-      return names.map(n => n.charAt(0).toUpperCase()).join('');
+      const names = user.displayName.split(" ");
+      return names.map((n) => n.charAt(0).toUpperCase()).join("");
     }
-    return 'NA';
+    return "NA";
   };
 
   const getHeaderTitle = () => {
     if (title) return title;
     const routeTitles: { [key: string]: string } = {
-      '/(tabs)': t('dashboard.title'),
-      '/(tabs)/index': t('dashboard.title'),
-      '/(tabs)/products': t('products.title'),
-      '/(tabs)/stock': t('stock.title'),
-      '/(tabs)/sales': t('sales.title'),
-      '/(tabs)/profile': t('profile.title'),
-      '/(auth)/create-shop': 'Create Shop',
+      "/(tabs)": t("dashboard.title"),
+      "/(tabs)/index": t("dashboard.title"),
+      "/(tabs)/products": t("products.title"),
+      "/(tabs)/stock": t("stock.title"),
+      "/(tabs)/sales": t("sales.title"),
+      "/(tabs)/profile": t("profile.title"),
+      "/(auth)/create-shop": "Create Shop",
     };
-    return routeTitles[pathname] || 'StockMaster';
+    return routeTitles[pathname] || "StockMaster";
   };
 
   const handleBackPress = () => {
     if (router.canGoBack()) {
       router.back();
     } else {
-      router.replace('/(tabs)');
+      router.replace("/(tabs)");
     }
   };
 
   const handleProfilePress = () => {
-    router.push('/(tabs)/profile');
+    router.push("/(tabs)/profile");
   };
 
   const handleSearchChange = (text: string) => {
@@ -140,12 +140,13 @@ export default function PremiumHeader({
     return `₣${amount}`;
   };
 
-  const isDashboard = pathname === '/(tabs)/index' || pathname === '/(tabs)' || pathname === '/';
+  const isDashboard =
+    pathname === "/(tabs)/index" || pathname === "/(tabs)" || pathname === "/";
 
   // Gradient colors as tuples (fix for TypeScript error)
-  const gradientColors: [string, string] = isDark 
-    ? ['#38bdf8', '#818cf8'] 
-    : ['#0ea5e9', '#6366f1'];
+  const gradientColors: [string, string] = isDark
+    ? ["#38bdf8", "#818cf8"]
+    : ["#0ea5e9", "#6366f1"];
 
   return (
     <>
@@ -168,7 +169,7 @@ export default function PremiumHeader({
           end={{ x: 1, y: 1 }}
           className="rounded-b-3xl overflow-hidden pt-12"
           style={{
-            shadowColor: isDark ? '#38bdf8' : '#0ea5e9',
+            shadowColor: isDark ? "#38bdf8" : "#0ea5e9",
             shadowOffset: { width: 0, height: 4 },
             shadowOpacity: 0.2,
             shadowRadius: 12,
@@ -184,7 +185,7 @@ export default function PremiumHeader({
                   <MotiView
                     from={{ scale: 0.8, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
-                    transition={{ type: 'spring', delay: 100 }}
+                    transition={{ type: "spring", delay: 100 }}
                   >
                     <TouchableOpacity
                       onPress={handleBackPress}
@@ -198,7 +199,7 @@ export default function PremiumHeader({
                   <MotiView
                     from={{ scale: 0.8, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
-                    transition={{ type: 'spring', delay: 100 }}
+                    transition={{ type: "spring", delay: 100 }}
                   >
                     <TouchableOpacity
                       onPress={onMenuPress}
@@ -212,7 +213,7 @@ export default function PremiumHeader({
                   <MotiView
                     from={{ scale: 0.8, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
-                    transition={{ type: 'spring', delay: 100 }}
+                    transition={{ type: "spring", delay: 100 }}
                     className="w-10 h-10 rounded-xl bg-white/20 items-center justify-center"
                   >
                     <Ionicons name="cube-outline" size={22} color="#ffffff" />
@@ -222,7 +223,7 @@ export default function PremiumHeader({
                 <MotiView
                   from={{ translateX: -20, opacity: 0 }}
                   animate={{ translateX: 0, opacity: 1 }}
-                  transition={{ type: 'spring', delay: 150 }}
+                  transition={{ type: "spring", delay: 150 }}
                   className="ml-3"
                 >
                   <Text className="text-white text-2xl font-bold tracking-tight">
@@ -243,7 +244,7 @@ export default function PremiumHeader({
                   <MotiView
                     from={{ scale: 0 }}
                     animate={{ scale: 1 }}
-                    transition={{ type: 'spring', delay: 200 }}
+                    transition={{ type: "spring", delay: 200 }}
                     className="px-2 py-1 rounded-full bg-white/20"
                   >
                     <Text className="text-white text-xs font-medium">LIVE</Text>
@@ -266,7 +267,7 @@ export default function PremiumHeader({
                   <MotiView
                     from={{ scale: 0.8, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
-                    transition={{ type: 'spring', delay: 300 }}
+                    transition={{ type: "spring", delay: 300 }}
                   >
                     <TouchableOpacity
                       onPress={handleProfilePress}
@@ -274,23 +275,21 @@ export default function PremiumHeader({
                       activeOpacity={0.7}
                     >
                       <LinearGradient
-                        colors={['#ffffff', '#f0f0f0']}
+                        colors={["#ffffff", "#f0f0f0"]}
                         className="w-10 h-10 rounded-xl items-center justify-center"
                         style={{ borderRadius: 50 }}
                       >
-                        {
-                          user.imageUrl ? (
-                            <Image
-                              source={{ uri: user.imageUrl }}
-                              className="w-10 h-10 rounded-full object-contain"
-                              style={{borderRadius: 50}}
-                            />
-                          ) : (
-                        <Text className="text-brand font-bold text-base">
-                          {getInitials()}
-                        </Text>
-                          )
-                        }
+                        {user.imageUrl ? (
+                          <Image
+                            source={{ uri: user.imageUrl }}
+                            className="w-10 h-10 rounded-full object-contain"
+                            style={{ borderRadius: 50 }}
+                          />
+                        ) : (
+                          <Text className="text-brand font-bold text-base">
+                            {getInitials()}
+                          </Text>
+                        )}
                       </LinearGradient>
                       <View className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-success border-2 border-white" />
                     </TouchableOpacity>
@@ -304,31 +303,31 @@ export default function PremiumHeader({
               <MotiView
                 from={{ opacity: 0, translateY: 20 }}
                 animate={{ opacity: 1, translateY: 0 }}
-                transition={{ type: 'spring', delay: 350 }}
+                transition={{ type: "spring", delay: 350 }}
                 className="flex-row justify-between mt-5 gap-2"
               >
                 {[
-                  { 
-                    icon: '📦', 
-                    label: 'Products', 
-                    value: displayStats.products?.toString() || '0',
-                    trend: '+12%',
+                  {
+                    icon: "📦",
+                    label: "Products",
+                    value: displayStats.products?.toString() || "0",
+                    trend: "+12%",
                   },
-                  { 
-                    icon: '💰', 
-                    label: 'Sales', 
+                  {
+                    icon: "💰",
+                    label: "Sales",
                     value: formatCurrency(displayStats.sales || 0),
-                    trend: '+23%',
+                    trend: "+23%",
                   },
-                  { 
-                    icon: '📈', 
-                    label: 'Revenue', 
+                  {
+                    icon: "📈",
+                    label: "Revenue",
                     value: formatCurrency(displayStats.revenue || 0),
-                    trend: '+18%',
+                    trend: "+18%",
                   },
                 ].map((stat, index) => (
-                  <View 
-                    key={index} 
+                  <View
+                    key={index}
                     className="flex-1 bg-white/15 rounded-2xl px-3 py-2.5 flex-row items-center"
                   >
                     <Text className="text-xl mr-2">{stat.icon}</Text>
@@ -359,30 +358,30 @@ export default function PremiumHeader({
               transition={{ delay: 400 }}
               className="px-4 pb-4"
             >
-              <View className="bg-white/95 dark:bg-dark-surface rounded-2xl flex-row items-center px-4 py-2.5 shadow-sm">
+              <View className="bg-white/95 dark:bg-dark-surface rounded-sm flex-row items-center px-4 py-0.5 shadow-sm">
                 <Ionicons
                   name="search-outline"
                   size={20}
-                  color={isDark ? '#94a3b8' : '#64748b'}
+                  color={isDark ? "#94a3b8" : "#64748b"}
                 />
                 <TextInput
-                  ref={searchInputRef}
+                  //ref={searchInputRef}
                   value={searchQuery}
                   onChangeText={handleSearchChange}
-                  placeholder={searchPlaceholder || 'Search...'}
-                  placeholderTextColor={isDark ? '#94a3b8' : '#64748b'}
+                  placeholder={searchPlaceholder || "Search..."}
+                  placeholderTextColor={isDark ? "#94a3b8" : "#64748b"}
                   className="flex-1 ml-3 text-text dark:text-dark-text text-base font-medium"
                   autoCapitalize="none"
                   autoComplete="off"
                   autoCorrect={false}
-                  selectionColor={isDark ? '#38bdf8' : '#0ea5e9'}
+                  selectionColor={isDark ? "#38bdf8" : "#0ea5e9"}
                 />
                 {searchQuery ? (
-                  <TouchableOpacity onPress={() => handleSearchChange('')}>
+                  <TouchableOpacity onPress={() => handleSearchChange("")}>
                     <Ionicons
                       name="close-circle"
                       size={18}
-                      color={isDark ? '#94a3b8' : '#64748b'}
+                      color={isDark ? "#94a3b8" : "#64748b"}
                     />
                   </TouchableOpacity>
                 ) : null}

@@ -169,7 +169,8 @@ function AdjustStockScreen({ product, suppliers }: AdjustStockScreenProps) {
           // Update Product Stock
           await product.update((p) => {
             p.stockQuantity = calculatedNewStock;
-            
+            if(p.sellingPricePerBase !== numericSellPrice && numericSellPrice > 0) p.sellingPricePerBase = numericSellPrice;
+            if(p.wholesalePricePerBase !== numericWholePrice && numericWholePrice > 0) p.wholesalePricePerBase = numericWholePrice;
           });
         }
       });
@@ -177,6 +178,7 @@ function AdjustStockScreen({ product, suppliers }: AdjustStockScreenProps) {
       let successMessage = 'Mise à jour réussie.';
       if (hasQtyChange) successMessage += `\nNouveau stock: ${calculatedNewStock} ${product.baseUnit}`;
       if (hasSellPriceChange) successMessage += `\nNouveau prix de vente: ${numericSellPrice} F`;
+      if (hasWholePriceChange) successMessage += `\nNouveau prix de gros: ${numericWholePrice} F`;
       
       Alert.alert('Succès', successMessage, [{ text: 'OK', onPress: () => router.back() }]);
 
@@ -303,7 +305,7 @@ function AdjustStockScreen({ product, suppliers }: AdjustStockScreenProps) {
                     <View>
                       <ThemedText variant="muted" size="xs">Nouveau Total</ThemedText>
                       <ThemedText variant="default" size="sm" className="font-bold">
-                        {calculatedNewStock.toFixed(2)} {product.baseUnit}
+                        {calculatedNewStock.toFixed(2)} {product?.baseUnit}
                       </ThemedText>
                     </View>
                     {adjustmentType === 'IN' && (
@@ -373,32 +375,32 @@ function AdjustStockScreen({ product, suppliers }: AdjustStockScreenProps) {
               
               <CardHeader
                 title="Mettre à jour Prix de Vente"
-                subtitle={`Actuel: ${product.sellingPricePerBase.toLocaleString('fr-FR')} F / ${product.baseUnit}`}
+                subtitle={`Actuel: ${product?.sellingPricePerBase.toLocaleString('fr-FR')} F / ${product.baseUnit}`}
               />
               <CardContent>
                 <Input
                   label="Nouveau Prix de Vente Unitaire"
-                  placeholder={`Ex: ${product?.costPricePerBase ? ( product.costPricePerBase * 1.4).toFixed(2) : '0.00'}`}
+                  placeholder={`Ex: ${product?.costPricePerBase ? ( product?.costPricePerBase * 1.4).toFixed(2) : '0.00'}`}
                   value={newSellingPrice}
                   onChangeText={setNewSellingPrice}
                   keyboardType="decimal-pad"
                   leftIcon="cash-outline"
                 />
                 {newSellingPrice && !isNaN(numericSellPrice) && (
-                  <ThemedText variant={numericSellPrice > product.sellingPricePerBase ? 'success' : 'warning'} size="xs" className="mt-2">
-                    {numericSellPrice > product.sellingPricePerBase ? '↑ Augmentation' : '↓ Diminution'} de {(numericSellPrice - product.sellingPricePerBase).toLocaleString('fr-FR')} F
+                  <ThemedText variant={numericSellPrice > product?.sellingPricePerBase ? 'success' : 'warning'} size="xs" className="mt-2">
+                    {numericSellPrice > product?.sellingPricePerBase ? '↑ Augmentation' : '↓ Diminution'} de {(numericSellPrice - product.sellingPricePerBase).toLocaleString('fr-FR')} F
                   </ThemedText>
                 )}
 
                 {/* Quick Markup Buttons */}
               <View className="mt-3">
                 <ThemedText variant="muted" size="xs" className="mb-2">
-                  Marge sur prix d'achat ({product.costPricePerBase.toLocaleString('fr-FR')} F)
+                  Marge sur prix d'achat ({product?.costPricePerBase.toLocaleString('fr-FR')} F)
                 </ThemedText>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   <View className="flex-row gap-2">
                     {[2, 5, 10, 15, 20, 25, 30, 50].map(percent => {
-                      const markupPrice = product.costPricePerBase * (1 + percent / 100);
+                      const markupPrice = product?.costPricePerBase * (1 + percent / 100);
                       const isSelected = Math.abs(numericSellPrice - markupPrice) < 0.01;
                       return (
                         <TouchableOpacity
@@ -438,31 +440,31 @@ function AdjustStockScreen({ product, suppliers }: AdjustStockScreenProps) {
             <Card variant="outlined" status="success">
              <CardHeader
                 title="Mettre à jour Prix de Gros"
-                subtitle={`Actuel: ${product.wholesalePricePerBase.toLocaleString('fr-FR')} F / ${product.baseUnit}`}
+                subtitle={`Actuel: ${product?.wholesalePricePerBase?.toLocaleString('fr-FR')} F / ${product.baseUnit}`}
               />
               <CardContent>
                 <Input
                   label="Nouveau Prix de Gros Unitaire"
-                  placeholder={`Ex: ${product?.sellingPricePerBase ? (product.sellingPricePerBase * 0.95).toFixed(2) : '0.00'}`}
+                  placeholder={`Ex: ${product?.sellingPricePerBase ? (product?.sellingPricePerBase * 0.95).toFixed(2) : '0.00'}`}
                   value={newWholesalePrice}
                   onChangeText={setNewWholesalePrice}
                   keyboardType="decimal-pad"
                   leftIcon="cart-outline"
                 />
                  {newWholesalePrice && !isNaN(numericWholePrice) && (
-                  <ThemedText variant={numericWholePrice > product.wholesalePricePerBase ? 'success' : 'warning'} size="xs" className="mt-2">
-                    {numericWholePrice > product.wholesalePricePerBase ? '↑ Augmentation' : '↓ Diminution'} de {(numericWholePrice - product.wholesalePricePerBase).toLocaleString('fr-FR')} F
+                  <ThemedText variant={numericWholePrice > product?.wholesalePricePerBase ? 'success' : 'warning'} size="xs" className="mt-2">
+                    {numericWholePrice > product?.wholesalePricePerBase ? '↑ Augmentation' : '↓ Diminution'} de {(numericWholePrice - product?.wholesalePricePerBase).toLocaleString('fr-FR')} F
                   </ThemedText>
                 )}
                 {/* Quick Discount Buttons */}
               <View className="mt-3">
                 <ThemedText variant="muted" size="xs" className="mb-2">
-                  Remise sur prix de vente ({product.sellingPricePerBase.toLocaleString('fr-FR')} F)
+                  Remise sur prix de vente ({product?.sellingPricePerBase.toLocaleString('fr-FR')} F)
                 </ThemedText>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   <View className="flex-row gap-2">
                     {[2, 5, 10, 15, 20, 25, 30].map(percent => {
-                      const discountedPrice = product.sellingPricePerBase * (1 - percent / 100);
+                      const discountedPrice = product?.sellingPricePerBase * (1 - percent / 100);
                       const isSelected = Math.abs(numericWholePrice - discountedPrice) < 0.01;
                       return (
                         <TouchableOpacity

@@ -43,7 +43,7 @@ export default function ProductDetails({
   getProductStockStatus,
 }: ProductDetailsProps) {
   return (
-    <Card variant="elevated" className="mb-4">
+    <Card variant="elevated" className="mb-4 p-2">
       <CardHeader
         title={product.name}
         subtitle={`Add quantity to cart`}
@@ -61,7 +61,7 @@ export default function ProductDetails({
           </Button>
         }
       />
-      <CardContent className="p-4">
+      <CardContent className="p-4 px-2">
         {/* Product Info */}
         <View className="flex-row items-center mb-6 p-4 bg-surface-soft dark:bg-dark-surface-soft rounded-lg">
           <View className="w-16 h-16 rounded-lg bg-surface-muted dark:bg-dark-surface-muted items-center justify-center mr-4 overflow-hidden">

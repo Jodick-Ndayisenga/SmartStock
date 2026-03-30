@@ -711,6 +711,7 @@ const TransactionDetailsWithObservables = enhance(TransactionDetailsWithLoading)
 // Main exported component
 export default function TransactionDetailsScreen() {
   const { id } = useLocalSearchParams();
+  console.log('Transaction ID from params:', id);
   
   if (!id || typeof id !== 'string') {
     return (

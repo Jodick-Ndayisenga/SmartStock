@@ -66,6 +66,7 @@ interface CashFlowSummary {
 
 interface CashFlowTransaction {
   id: string;
+  transactionId?: string;
   date: Date;
   amount: number;
   type: 'in' | 'out';
@@ -588,6 +589,7 @@ const CashFlowScreenInner = ({
         const account = accounts.find(a => a.id === at.cashAccountId);
         return {
           id: at.id,
+          transactionId: at.transactionId,
           date: new Date(at.transactionDate),
           amount: Math.abs(at.amount),
           type: (at.type === 'income' || at.type === 'deposit') ? 'in' : 'out',
@@ -1872,11 +1874,11 @@ const CategoryBreakdown = () => {
         {recentTransactions.length > 0 ? (
           recentTransactions.map((t, index) => (
             <TouchableOpacity 
-              key={t.id}
+              key={t?.id}
               className={`flex-row items-center p-3 ${
                 index < recentTransactions.length - 1 ? 'border-b border-border dark:border-dark-border' : ''
               }`}
-              onPress={() => router.push(`/shops/${currentShop?.id}/transaction/${t.id}`)}
+              onPress={() => router.push(`/shops/${currentShop?.id}/transaction/${t?.transactionId}`)}
             >
               <View className={`w-12 h-12 rounded-full items-center justify-center mr-3 ${
                 t.type === 'in' ? 'bg-success/10' : 'bg-error/10'

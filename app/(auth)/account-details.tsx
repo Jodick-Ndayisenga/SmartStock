@@ -286,7 +286,7 @@ const TransactionItem = ({
               <>
                 <Text className="mx-2 text-text-muted dark:text-dark-text-muted">•</Text>
                 <Text className={`text-xs ${isDark ? 'text-dark-text-soft' : 'text-text-soft'}`}>
-                  Ref: {transaction.reference}
+                  Ref: {transaction.reference.length > 15 ? transaction.reference.substring(0, 15) + '...' : transaction.reference}
                 </Text>
               </>
             )}
@@ -763,10 +763,7 @@ export default function AccountDetailsScreen() {
                 Transaction History
               </Text>
               <TouchableOpacity 
-                onPress={() => router.push({ 
-                  pathname: '/(tabs)/transactions', 
-                  params: { accountId: account.id } 
-                })}
+                onPress={() => router.push(`/shops/${currentShop?.id}/transactions`)}
               >
                 <Text className={`text-sm font-medium ${isDark ? 'text-dark-brand' : 'text-brand'}`}>
                   View All
@@ -785,10 +782,7 @@ export default function AccountDetailsScreen() {
                 ))}
                 {transactions.length > 10 && (
                   <TouchableOpacity 
-                    onPress={() => router.push({ 
-                      pathname: `/shops/${currentShop?.id}/transactions`, 
-                      params: { accountId: account.id } 
-                    })}
+                    onPress={() => router.push(`/shops/${currentShop?.id}/transactions`)}
                     className={`mt-2 py-3 rounded-xl items-center ${isDark ? 'bg-dark-surface-soft' : 'bg-surface'}`}
                   >
                     <Text className={`text-sm font-medium ${isDark ? 'text-dark-brand' : 'text-brand'}`}>
